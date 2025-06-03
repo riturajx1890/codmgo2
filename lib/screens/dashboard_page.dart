@@ -61,7 +61,7 @@ class DashboardPage extends StatelessWidget {
             _buildDetailedInfoBox(
               color: boxColor,
               textColor: textColor,
-              icon: Icons.calendar_today,
+              icon: Icons.event,
               lines: const [
                 "Today's Attendance",
 
@@ -124,6 +124,16 @@ class DashboardPage extends StatelessWidget {
             _buildOptionBox(
               title: 'Apply Leave',
               icon: Icons.edit_calendar,
+              color: boxColor,
+              textColor: textColor,
+              onTap: () {
+                Navigator.push(context, MaterialPageRoute(builder: (context) => Placeholder()));
+              },
+            ),
+
+            _buildOptionBox(
+              title: 'Approve Leave',
+              icon: Icons.check_circle_outline,
               color: boxColor,
               textColor: textColor,
               onTap: () {
