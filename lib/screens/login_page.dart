@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../services/permission_service.dart';
 import '../services/salesforce_api_service.dart';
 import '../services/salesforce_auth_service.dart';
 import '../styles/spacing_style.dart';
@@ -32,6 +33,10 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+
+    Future.microtask(() async {
+      await PermissionService.requestInitialPermissions();
+    });
 
     _animationController = AnimationController(
       duration: const Duration(milliseconds: 180),

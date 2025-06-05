@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-class ApplyLeave extends StatelessWidget {
-  const ApplyLeave({super.key});
+class ApproveLeave extends StatelessWidget {
+  const ApproveLeave({super.key});
 
   @override
   Widget build(BuildContext context) {

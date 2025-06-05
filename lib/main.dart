@@ -26,11 +26,6 @@ class MyApp extends StatelessWidget {
       initialRoute: '/login',
       routes: {
         '/login': (context) => const LoginPage(),
-        '/dashboard': (context) => const PlaceholderWidget(title: 'Dashboard Page'),
-        '/attendance-history': (context) => const PlaceholderWidget(title: 'Attendance History Page'),
-        '/apply-leave': (context) => const PlaceholderWidget(title: 'Apply Leave Page'),
-        '/team-attendance': (context) => const PlaceholderWidget(title: 'Team Attendance Page'),
-        '/leave-requests': (context) => const PlaceholderWidget(title: 'Leave Requests Page'),
       },
     );
   }

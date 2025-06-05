@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:codmgo2/utils/clock_in_out.dart';
 
-class DashboardPage extends StatelessWidget {
+class DashboardPage extends StatefulWidget {
   final String firstName;
   final String lastName;
 
@@ -10,6 +11,26 @@ class DashboardPage extends StatelessWidget {
     required this.firstName,
     required this.lastName,
   });
+
+  @override
+  State<DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<DashboardPage> {
+  late final ClockInOutController clockInOutController;
+
+
+  @override
+  void initState() {
+    super.initState();
+    clockInOutController = ClockInOutController();
+  }
+
+  @override
+  void dispose() {
+    clockInOutController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -47,8 +68,7 @@ class DashboardPage extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              'Test Man'
-              '$firstName $lastName',
+              'Test Man ${widget.firstName} ${widget.lastName}',
               style: TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.w600,
@@ -57,30 +77,27 @@ class DashboardPage extends StatelessWidget {
             ),
             const SizedBox(height: 20),
 
-            // Attendance Box with 3 lines
             _buildDetailedInfoBox(
               color: boxColor,
               textColor: textColor,
               icon: Icons.event,
-              lines: const [
+              lines: [
                 "Today's Attendance",
-
-                "Clocked In",
-                "09:30 AM",
+                "Marked",
+                "09:30 AM"
               ],
               height: 150,
             ),
 
-            // Leave Box (single title)
             _buildTopAlignedInfoBox(
               title: 'Upcoming Leave',
+              subtitle: '04 Jun - 07 Jun',
               icon: Icons.beach_access,
               color: boxColor,
               textColor: textColor,
               height: 120,
             ),
 
-            // Clock In and Clock Out buttons
             Row(
               children: [
                 Expanded(
@@ -89,8 +106,9 @@ class DashboardPage extends StatelessWidget {
                     icon: Icons.login,
                     backgroundColor: Colors.blue,
                     height: 130,
-                    onTap: () {
-                      // Handle Clock In
+                    onTap: () async {
+                      await clockInOutController.clockIn(context);
+                      setState(() {});
                     },
                   ),
                 ),
@@ -101,8 +119,9 @@ class DashboardPage extends StatelessWidget {
                     icon: Icons.logout,
                     backgroundColor: Colors.blue,
                     height: 130,
-                    onTap: () {
-                      // Handle Clock Out
+                    onTap: () async {
+                      await clockInOutController.clockOut(context);
+                      setState(() {});
                     },
                   ),
                 ),
@@ -120,7 +139,6 @@ class DashboardPage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
 
-            // Apply Leave Box
             _buildOptionBox(
               title: 'Apply Leave',
               icon: Icons.edit_calendar,
@@ -141,25 +159,23 @@ class DashboardPage extends StatelessWidget {
               },
             ),
 
-            // Attendance History Box
             _buildOptionBox(
               title: 'Attendance History',
               icon: Icons.history,
               color: boxColor,
               textColor: textColor,
               onTap: () {
-                // Handle tap
+                Navigator.push(context, MaterialPageRoute(builder: (context) => Placeholder()));
               },
             ),
 
-            // Logout Box
             _buildOptionBox(
               title: 'Logout',
               icon: Icons.exit_to_app,
               color: boxColor,
               textColor: textColor,
               onTap: () {
-                // Handle logout
+                // Handle logout here
               },
             ),
           ],
@@ -199,13 +215,10 @@ class DashboardPage extends StatelessWidget {
                 children: List.generate(lines.length, (index) {
                   double fontSize;
                   FontWeight fontWeight;
-
                   double bottomSpacing;
 
-                  // Customize style based on index
                   switch (index) {
                     case 0:
-
                       fontSize = 20;
                       fontWeight = FontWeight.bold;
                       bottomSpacing = 8;
@@ -245,6 +258,7 @@ class DashboardPage extends StatelessWidget {
 
   Widget _buildTopAlignedInfoBox({
     required String title,
+    required String subtitle,
     required IconData icon,
     required Color color,
     required Color textColor,
@@ -269,29 +283,26 @@ class DashboardPage extends StatelessWidget {
             children: [
               Icon(icon, size: 32, color: textColor),
               const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: List.generate(2, (index) {
+                  final String text = index == 0 ? title : subtitle;
+                  final double fontSize = index == 0 ? 20 : 32;
+                  final FontWeight fontWeight = FontWeight.bold;
+                  final double bottomSpacing = index == 0 ? 8 : 0;
+
+                  return Padding(
+                    padding: EdgeInsets.only(bottom: bottomSpacing),
+                    child: Text(
+                      text,
                       style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+                        fontSize: fontSize,
+                        fontWeight: fontWeight,
                         color: textColor,
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '04 Jun - 07 Jun',
-                      style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        color: textColor,
-                      ),
-                    ),
-                  ],
-                ),
+                  );
+                }),
               ),
             ],
           ),
@@ -316,7 +327,9 @@ class DashboardPage extends StatelessWidget {
         decoration: BoxDecoration(
           color: backgroundColor,
           borderRadius: BorderRadius.circular(20),
-          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4))],
+          boxShadow: const [
+            BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4))
+          ],
         ),
         child: Center(
           child: Column(
@@ -355,7 +368,9 @@ class DashboardPage extends StatelessWidget {
         decoration: BoxDecoration(
           color: color,
           borderRadius: BorderRadius.circular(20),
-          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4))],
+          boxShadow: const [
+            BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4))
+          ],
         ),
         child: Row(
           children: [
