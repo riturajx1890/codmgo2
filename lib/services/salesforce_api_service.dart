@@ -13,9 +13,8 @@ class SalesforceApiService {
       String email,
       ) async {
     final query =
-        "SELECT First_Name__c, Last_Name__c, Email__c FROM Employee__c WHERE Email__c = '$email'";
+        "SELECT Id, First_Name__c, Last_Name__c, Email__c FROM Employee__c WHERE Email__c = '$email'";
     final encodedQuery = Uri.encodeComponent(query);
-
     final url = Uri.parse('$instanceUrl/services/data/$_apiVersion/query/?q=$encodedQuery');
 
     try {
@@ -31,8 +30,20 @@ class SalesforceApiService {
         final data = json.decode(response.body);
         final records = data['records'];
 
+        // Debug logging
+        _logger.i('Query response: ${response.body}');
+        _logger.i('Records found: ${records?.length ?? 0}');
+
         if (records != null && records.isNotEmpty) {
-          return records[0]; // Return the first matching employee
+          final employee = records[0];
+
+          // Debug logging for employee data
+          _logger.i('Employee data: $employee');
+          _logger.i('Employee ID: ${employee['Id']}');
+          _logger.i('First Name: ${employee['First_Name__c']}');
+          _logger.i('Last Name: ${employee['Last_Name__c']}');
+
+          return employee; // Return the first matching employee
         } else {
           _logger.w('No matching employee found for email: $email');
         }

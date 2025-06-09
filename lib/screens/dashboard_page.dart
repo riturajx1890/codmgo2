@@ -5,11 +5,13 @@ import 'package:codmgo2/utils/clock_in_out.dart';
 class DashboardPage extends StatefulWidget {
   final String firstName;
   final String lastName;
+  final String employeeId;
 
   const DashboardPage({
     super.key,
     required this.firstName,
     required this.lastName,
+    required this.employeeId,
   });
 
   @override
@@ -68,7 +70,7 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Test Man ${widget.firstName} ${widget.lastName}',
+              '${widget.firstName} ${widget.lastName}',
               style: TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.w600,

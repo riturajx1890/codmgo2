@@ -46,7 +46,7 @@ class ClockInOutService {
     return null;
   }
 
-  /// Fetches attendance records for a specific employee from the Salesforce Attendance__c object.
+  /// Fetches attendance records for a specific employee.
   static Future<List<Map<String, dynamic>>?> getAttendanceByEmployee(
       String accessToken,
       String instanceUrl,
@@ -87,7 +87,7 @@ class ClockInOutService {
     return null;
   }
 
-  /// Creates a new attendance record (Clock In) in Salesforce Attendance__c object.
+  /// Creates a new attendance record (Clock In).
   static Future<String?> clockIn(
       String accessToken,
       String instanceUrl,
@@ -126,7 +126,7 @@ class ClockInOutService {
     return null;
   }
 
-  /// Updates an existing attendance record (Clock Out) in Salesforce Attendance__c object.
+  /// Updates an existing attendance record (Clock Out).
   static Future<bool> clockOut(
       String accessToken,
       String instanceUrl,
@@ -169,8 +169,8 @@ class ClockInOutService {
       String instanceUrl,
       String employeeId,
       ) async {
-    final today = DateTime.now();
-    final todayStart = DateTime(today.year, today.month, today.day);
+    final today = DateTime.now().toUtc();
+    final todayStart = DateTime.utc(today.year, today.month, today.day);
     final todayEnd = todayStart.add(Duration(days: 1));
 
     final query =
@@ -193,7 +193,7 @@ class ClockInOutService {
         final records = data['records'];
 
         if (records != null && records.isNotEmpty) {
-          return records[0]; // Return today's attendance record
+          return records[0];
         } else {
           _logger.w('No attendance record found for today for employee: $employeeId');
         }

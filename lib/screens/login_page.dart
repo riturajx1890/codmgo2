@@ -81,30 +81,45 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       final daysPassed = (now - rememberMeTimestamp) / (1000 * 60 * 60 * 24);
 
       if (daysPassed < 45) {
+        // Get stored employee data
+        final employeeId = prefs.getString('employee_id') ?? '';
+        final firstName = prefs.getString('first_name') ?? '';
+        final lastName = prefs.getString('last_name') ?? '';
+
         WidgetsBinding.instance.addPostFrameCallback((_) {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (context) => const DashboardPage(firstName: '', lastName: '',)),
+            MaterialPageRoute(builder: (context) => DashboardPage(
+              firstName: firstName,
+              lastName: lastName,
+              employeeId: employeeId, // Pass employee ID
+            )),
           );
         });
       } else {
         await prefs.remove('remember_me_timestamp');
+        await prefs.remove('employee_id');
+        await prefs.remove('first_name');
+        await prefs.remove('last_name');
       }
     }
   }
 
-  Future<void> _saveRememberMeStatus() async {
+  Future<void> _saveRememberMeStatus(String employeeId, String firstName, String lastName) async {
     if (_rememberMe) {
       final prefs = await SharedPreferences.getInstance();
       final currentTimestamp = DateTime.now().millisecondsSinceEpoch;
       await prefs.setInt('remember_me_timestamp', currentTimestamp);
+      await prefs.setString('employee_id', employeeId);
+      await prefs.setString('first_name', firstName);
+      await prefs.setString('last_name', lastName);
     }
   }
 
-  Future<bool> _checkEmailFromSalesforce(String email) async {
+  Future<Map<String, dynamic>?> _checkEmailFromSalesforce(String email) async {
     try {
       final authData = await SalesforceAuthService.authenticate();
-      if (authData == null) return false;
+      if (authData == null) return null;
 
       final accessToken = authData['access_token'];
       final instanceUrl = authData['instance_url'];
@@ -115,10 +130,18 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         email,
       );
 
-      return employee != null;
+      if (employee != null) {
+        // Return employee data with auth info
+        return {
+          'employee': employee,
+          'access_token': accessToken,
+          'instance_url': instanceUrl,
+        };
+      }
+      return null;
     } catch (e) {
       debugPrint('Salesforce login error: $e');
-      return false;
+      return null;
     }
   }
 
@@ -142,9 +165,9 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
     await Future.delayed(const Duration(milliseconds: 1500));
 
-    bool emailIsValid = await _checkEmailFromSalesforce(email);
+    final salesforceData = await _checkEmailFromSalesforce(email);
     bool passwordIsValid = _checkPassword(password);
-    bool isValid = emailIsValid && passwordIsValid;
+    bool isValid = salesforceData != null && passwordIsValid;
 
     setState(() {
       _hasValidationError = !isValid;
@@ -152,13 +175,38 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     });
 
     if (isValid) {
-      if (_rememberMe) {
-        await _saveRememberMeStatus();
+      final employee = salesforceData!['employee'];
+      final employeeId = employee['Id']?.toString() ?? ''; // Convert to string and handle null
+      final firstName = employee['First_Name__c']?.toString() ?? '';
+      final lastName = employee['Last_Name__c']?.toString() ?? '';
+
+      // Check if we have a valid employee ID
+      if (employeeId.isEmpty) {
+        setState(() {
+          _hasValidationError = true;
+        });
+        _showSnackBar("Employee record is incomplete. Please contact admin.", isError: true);
+        return;
       }
+
+      // Save employee data for remember me
+      if (_rememberMe) {
+        await _saveRememberMeStatus(employeeId, firstName, lastName);
+      }
+
+      // Also save auth tokens for the session
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('session_access_token', salesforceData['access_token']?.toString() ?? '');
+      await prefs.setString('session_instance_url', salesforceData['instance_url']?.toString() ?? '');
+      await prefs.setString('current_employee_id', employeeId);
 
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const DashboardPage(firstName: '', lastName: '',)),
+        MaterialPageRoute(builder: (context) => DashboardPage(
+          firstName: firstName,
+          lastName: lastName,
+          employeeId: employeeId, // Pass the employee ID
+        )),
       );
     } else {
       _showSnackBar("Invalid credentials. Please try again.", isError: true);
