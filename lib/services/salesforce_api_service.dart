@@ -1,60 +1,116 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
 
 class SalesforceApiService {
-  static const String _apiVersion = 'v60.0';
   static final Logger _logger = Logger();
 
-  /// Fetches an employee record by email from the Salesforce Employee__c object.
   static Future<Map<String, dynamic>?> getEmployeeByEmail(
       String accessToken,
       String instanceUrl,
-      String email,
+      String email
       ) async {
-    final query =
-        "SELECT Id, First_Name__c, Last_Name__c, Email__c FROM Employee__c WHERE Email__c = '$email'";
-    final encodedQuery = Uri.encodeComponent(query);
-    final url = Uri.parse('$instanceUrl/services/data/$_apiVersion/query/?q=$encodedQuery');
+    _logger.i('Starting getEmployeeByEmail for: $email');
 
     try {
+      // SOQL query to find employee by email
+      final query = "SELECT Id, Name, First_Name__c, Last_Name__c, Email__c FROM Employee__c WHERE Email__c = '$email' LIMIT 1";
+      final encodedQuery = Uri.encodeComponent(query);
+      final url = '$instanceUrl/services/data/v52.0/query/?q=$encodedQuery';
+
+      _logger.i('Querying Salesforce for employee with email: $email');
+      _logger.i('Query URL: $url');
+      _logger.d('Query: $query');
+
       final response = await http.get(
-        url,
+        Uri.parse(url),
         headers: {
           'Authorization': 'Bearer $accessToken',
           'Content-Type': 'application/json',
         },
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          _logger.e('Employee query request timed out for email: $email');
+          throw TimeoutException('Employee query request timed out', const Duration(seconds: 30));
+        },
       );
+
+      _logger.i('Response status: ${response.statusCode}');
+      _logger.d('Response body: ${response.body}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final records = data['records'];
+        final records = data['records'] as List;
 
-        // Debug logging
-        _logger.i('Query response: ${response.body}');
-        _logger.i('Records found: ${records?.length ?? 0}');
-
-        if (records != null && records.isNotEmpty) {
-          final employee = records[0];
-
-          // Debug logging for employee data
-          _logger.i('Employee data: $employee');
-          _logger.i('Employee ID: ${employee['Id']}');
-          _logger.i('First Name: ${employee['First_Name__c']}');
-          _logger.i('Last Name: ${employee['Last_Name__c']}');
-
-          return employee; // Return the first matching employee
+        if (records.isNotEmpty) {
+          final employee = records.first;
+          _logger.i('Employee found: ${employee['Name']} with ID: ${employee['Id']}');
+          _logger.d('Employee details: $employee');
+          return employee;
         } else {
-          _logger.w('No matching employee found for email: $email');
+          _logger.w('No employee found with email: $email');
+          return null;
         }
       } else {
-        _logger.e('Failed to fetch employee. Status: ${response.statusCode}');
-        _logger.e('Response body: ${response.body}');
+        _logger.e('Failed to query employee: ${response.statusCode} - ${response.body}');
+        return null;
       }
+    } on TimeoutException catch (e) {
+      _logger.e('Employee query timeout: $e');
+      return null;
     } catch (e, stackTrace) {
-      _logger.e('Error fetching employee by email', error: e, stackTrace: stackTrace);
+      _logger.e('Error querying employee: $e', error: e, stackTrace: stackTrace);
+      return null;
     }
+  }
 
-    return null;
+  static Future<List<Map<String, dynamic>>?> getAllEmployees(
+      String accessToken,
+      String instanceUrl
+      ) async {
+    _logger.i('Starting getAllEmployees');
+
+    try {
+      final query = "SELECT Id, Name, First_Name__c, Last_Name__c, Email__c FROM Employee__c";
+      final encodedQuery = Uri.encodeComponent(query);
+      final url = '$instanceUrl/services/data/v52.0/query/?q=$encodedQuery';
+
+      _logger.i('Query URL: $url');
+      _logger.d('Query: $query');
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          'Authorization': 'Bearer $accessToken',
+          'Content-Type': 'application/json',
+        },
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          _logger.e('Get all employees request timed out');
+          throw TimeoutException('Get all employees request timed out', const Duration(seconds: 30));
+        },
+      );
+
+      _logger.i('Response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final records = data['records'] as List;
+        _logger.i('Successfully retrieved ${records.length} employees');
+        return records.cast<Map<String, dynamic>>();
+      } else {
+        _logger.e('Failed to get all employees: ${response.statusCode} - ${response.body}');
+        return null;
+      }
+    } on TimeoutException catch (e) {
+      _logger.e('Get all employees timeout: $e');
+      return null;
+    } catch (e, stackTrace) {
+      _logger.e('Error getting all employees: $e', error: e, stackTrace: stackTrace);
+      return null;
+    }
   }
 }
