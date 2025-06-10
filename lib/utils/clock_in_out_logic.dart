@@ -17,11 +17,13 @@ class ClockInOutLogic with ChangeNotifier {
   DateTime? inTime;
   DateTime? outTime;
   Timer? _notificationTimer;
+  Timer? _autoClockOutTimer;
   int _notificationCount = 0;
+  static const int _maxNotifications = 5;
 
   double officeLat = 28.55122201233124;
   double officeLng = 77.32420167559967;
-  double radiusInMeters = 25;
+  double radiusInMeters = 250;
 
   String? accessToken;
   String? instanceUrl;
@@ -49,6 +51,7 @@ class ClockInOutLogic with ChangeNotifier {
   @override
   void dispose() {
     _notificationTimer?.cancel();
+    _autoClockOutTimer?.cancel();
     super.dispose();
   }
 
@@ -81,15 +84,16 @@ class ClockInOutLogic with ChangeNotifier {
           if (todayAttendance['Out_Time__c'] != null) {
             // Already clocked out today
             _status = ClockStatus.clockedOut;
-            inTime = DateTime.parse(todayAttendance['In_Time__c']);
-            outTime = DateTime.parse(todayAttendance['Out_Time__c']);
+            inTime = DateTime.parse(todayAttendance['In_Time__c']).toLocal();
+            outTime = DateTime.parse(todayAttendance['Out_Time__c']).toLocal();
             _logger.i('Found completed attendance for today');
           } else {
             // Already clocked in today
             _status = ClockStatus.clockedIn;
-            inTime = DateTime.parse(todayAttendance['In_Time__c']);
+            inTime = DateTime.parse(todayAttendance['In_Time__c']).toLocal();
             _logger.i('Found active clock-in for today');
             _startNotificationTimer();
+            _startAutoClockOutTimer();
           }
           notifyListeners();
         }
@@ -118,6 +122,12 @@ class ClockInOutLogic with ChangeNotifier {
       final minutesPast915 = elapsed.inMinutes - firstNotificationDelay.inMinutes;
       _notificationCount = (minutesPast915 / 45).floor() + 1;
 
+      // Don't exceed max notifications
+      if (_notificationCount >= _maxNotifications) {
+        _logger.i('Maximum notifications already sent');
+        return;
+      }
+
       // Time until next notification
       final nextNotificationMinutes = (_notificationCount * 45) - minutesPast915;
       initialDelay = Duration(minutes: nextNotificationMinutes);
@@ -136,12 +146,112 @@ class ClockInOutLogic with ChangeNotifier {
 
   void _schedulePeriodicNotifications() {
     _notificationTimer = Timer.periodic(const Duration(minutes: 45), (timer) {
+      if (_notificationCount >= _maxNotifications || _status != ClockStatus.clockedIn) {
+        timer.cancel();
+        return;
+      }
       _sendNotification();
     });
   }
 
+  void _startAutoClockOutTimer() {
+    if (inTime == null) return;
+
+    _autoClockOutTimer?.cancel();
+
+    final now = DateTime.now();
+    final clockInTime = inTime!;
+    final elapsed = now.difference(clockInTime);
+    const autoClockOutDelay = Duration(hours: 12);
+
+    Duration initialDelay;
+    if (elapsed >= autoClockOutDelay) {
+      // If already past 12 hours, auto clock out immediately
+      initialDelay = Duration.zero;
+    } else {
+      // Time until auto clock out
+      initialDelay = autoClockOutDelay - elapsed;
+    }
+
+    _logger.i('Starting auto clock out timer - will auto clock out in: ${initialDelay.inHours} hours ${initialDelay.inMinutes % 60} minutes');
+
+    _autoClockOutTimer = Timer(initialDelay, () {
+      _performAutoClockOut();
+    });
+  }
+
+  Future<void> _performAutoClockOut() async {
+    if (_status != ClockStatus.clockedIn) {
+      _logger.i('Auto clock out cancelled - user not clocked in');
+      return;
+    }
+
+    _logger.i('Performing automatic clock out after 12 hours');
+
+    try {
+      await _loadCredentials();
+      final currentEmployeeId = await _getEmployeeId();
+
+      if (currentEmployeeId != null && accessToken != null && instanceUrl != null) {
+        final todayAttendance = await ClockInOutService.getTodayAttendance(
+          accessToken!,
+          instanceUrl!,
+          currentEmployeeId,
+        );
+
+        if (todayAttendance != null && todayAttendance['Id'] != null && todayAttendance['Out_Time__c'] == null) {
+          final success = await ClockInOutService.clockOut(
+            accessToken!,
+            instanceUrl!,
+            todayAttendance['Id'],
+            DateTime.now().toUtc(),
+          );
+
+          if (success) {
+            _logger.i('Auto clock out successful');
+            _status = ClockStatus.clockedOut;
+            outTime = DateTime.now();
+            _notificationTimer?.cancel();
+            _autoClockOutTimer?.cancel();
+            notifyListeners();
+
+            // Send notification about auto clock out
+            await _sendAutoClockOutNotification();
+          } else {
+            _logger.e('Auto clock out failed');
+          }
+        }
+      }
+    } catch (e, stackTrace) {
+      _logger.e('Error during auto clock out: $e', error: e, stackTrace: stackTrace);
+    }
+  }
+
+  Future<void> _sendAutoClockOutNotification() async {
+    const androidDetails = AndroidNotificationDetails(
+      'auto_clockout_channel',
+      'Auto Clock Out Notifications',
+      channelDescription: 'Notifications for automatic clock out',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+
+    const iosDetails = DarwinNotificationDetails();
+    const notificationDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
+
+    await _notificationsPlugin.show(
+      9999, // Unique ID for auto clock out notification
+      'Auto Clock Out',
+      'You have been automatically clocked out after 12 hours of work.',
+      notificationDetails,
+    );
+  }
+
   void _sendNotification() async {
-    if (_status != ClockStatus.clockedIn || inTime == null) {
+    if (_status != ClockStatus.clockedIn || inTime == null || _notificationCount >= _maxNotifications) {
       _notificationTimer?.cancel();
       return;
     }
@@ -165,7 +275,7 @@ class ClockInOutLogic with ChangeNotifier {
     );
 
     String title = 'Overtime Alert!';
-    String body = 'You\'ve been clocked in for ${hoursWorked}+ hours (${(minutesWorked / 60).toStringAsFixed(1)} hours). Consider clocking out.';
+    String body = 'You\'ve been clocked in for $hoursWorked hour : $minutesWorked minutes.\n Consider clocking out.';
 
     await _notificationsPlugin.show(
       _notificationCount,
@@ -277,7 +387,7 @@ class ClockInOutLogic with ChangeNotifier {
         currentEmployeeId,
       );
 
-      return todayAttendance != null;
+      return todayAttendance != null && todayAttendance['Out_Time__c'] == null;
     } catch (e, stackTrace) {
       _logger.e('Error checking today\'s attendance: $e', error: e, stackTrace: stackTrace);
       return false;
@@ -304,6 +414,13 @@ class ClockInOutLogic with ChangeNotifier {
       _logger.e('Error checking today\'s clock out status: $e', error: e, stackTrace: stackTrace);
       return false;
     }
+  }
+
+  bool _isToday(DateTime dateTime) {
+    final now = DateTime.now();
+    return dateTime.year == now.year &&
+        dateTime.month == now.month &&
+        dateTime.day == now.day;
   }
 
   Future<Map<String, dynamic>> attemptClockInOut({required bool isClockIn}) async {
@@ -356,15 +473,16 @@ class ClockInOutLogic with ChangeNotifier {
           accessToken!,
           instanceUrl!,
           currentEmployeeId,
-          DateTime.now(),
+          DateTime.now().toUtc(), // Send UTC time to Salesforce
         );
 
         if (recordId != null) {
           _logger.i('Clock in successful - record ID: $recordId');
           _status = ClockStatus.clockedIn;
-          inTime = DateTime.now();
+          inTime = DateTime.now(); // Store local time for UI
           outTime = null;
           _startNotificationTimer();
+          _startAutoClockOutTimer();
           notifyListeners();
 
           return {
@@ -393,14 +511,15 @@ class ClockInOutLogic with ChangeNotifier {
             accessToken!,
             instanceUrl!,
             todayAttendance['Id'],
-            DateTime.now(),
+            DateTime.now().toUtc(), // Send UTC time to Salesforce
           );
 
           if (success) {
             _logger.i('Clock out successful');
             _status = ClockStatus.clockedOut;
-            outTime = DateTime.now();
+            outTime = DateTime.now(); // Store local time for UI
             _notificationTimer?.cancel();
+            _autoClockOutTimer?.cancel();
             notifyListeners();
 
             return {

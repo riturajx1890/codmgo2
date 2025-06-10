@@ -116,6 +116,10 @@ class ClockInOutService {
     _logger.i('Starting clock out process for attendance record: $attendanceRecordId');
     _logger.i('Clock out time: ${outTime.toIso8601String()}');
 
+    final utcOutTime = outTime.toUtc();
+    _logger.i('Clock out time (UTC): ${utcOutTime.toIso8601String()}');
+    _logger.i('Clock out time (Local): ${outTime.toLocal().toString()}');
+
     final url = Uri.parse('$instanceUrl/services/data/$_apiVersion/sobjects/Attendance__c/$attendanceRecordId');
 
     final body = json.encode({

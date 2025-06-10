@@ -39,6 +39,7 @@ class ClockInOutController with ChangeNotifier {
       }) async {
     // Check if already performed action today
     // COMMENTED OUT TO ALLOW MULTIPLE CLOCK INS/OUTS
+//
 
     if (isClockIn) {
       final alreadyClockedIn = await _logic.checkIfAlreadyClockedInToday();
@@ -79,6 +80,7 @@ class ClockInOutController with ChangeNotifier {
       }
     }
 
+//
 
     final now = DateTime.now();
     final dateStr = "${now.day}/${now.month}/${now.year}";
