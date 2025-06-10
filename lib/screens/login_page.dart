@@ -272,7 +272,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       });
 
       if (isValid) {
-        final employee = salesforceData!['employee'];
+        final employee = salesforceData['employee'];
         final employeeId = employee['Id']?.toString() ?? '';
         final firstName = employee['First_Name__c']?.toString() ?? '';
         final lastName = employee['Last_Name__c']?.toString() ?? '';

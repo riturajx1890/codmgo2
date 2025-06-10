@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:codmgo2/utils/clock_in_out.dart';
+import 'package:codmgo2/screens/clock_in_out.dart';
+import 'package:codmgo2/utils/clock_in_out_logic.dart';
 
 class DashboardPage extends StatefulWidget {
   final String firstName;
@@ -21,17 +22,61 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   late final ClockInOutController clockInOutController;
 
-
   @override
   void initState() {
     super.initState();
     clockInOutController = ClockInOutController();
+    // Add listener to rebuild UI when status changes
+    clockInOutController.addListener(_onClockStatusChanged);
   }
 
   @override
   void dispose() {
+    clockInOutController.removeListener(_onClockStatusChanged);
     clockInOutController.dispose();
     super.dispose();
+  }
+
+  void _onClockStatusChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  String _getStatusText() {
+    switch (clockInOutController.status) {
+      case ClockStatus.clockedIn:
+        return "Clocked In";
+      case ClockStatus.clockedOut:
+        return "Clocked Out";
+      default:
+        return "Unmarked";
+    }
+  }
+
+  String _getTimeText() {
+    DateTime? timeToShow;
+
+    switch (clockInOutController.status) {
+      case ClockStatus.clockedIn:
+        timeToShow = clockInOutController.inTime;
+        break;
+      case ClockStatus.clockedOut:
+        timeToShow = clockInOutController.outTime;
+        break;
+      default:
+        return "--:-- --";
+    }
+
+    if (timeToShow != null) {
+      final hour = timeToShow.hour > 12
+          ? timeToShow.hour - 12
+          : (timeToShow.hour == 0 ? 12 : timeToShow.hour);
+      final period = timeToShow.hour >= 12 ? "PM" : "AM";
+      return "${hour.toString().padLeft(2, '0')}:${timeToShow.minute.toString().padLeft(2, '0')} $period";
+    }
+
+    return "--:-- --";
   }
 
   @override
@@ -85,15 +130,15 @@ class _DashboardPageState extends State<DashboardPage> {
               icon: Icons.event,
               lines: [
                 "Today's Attendance",
-                "Marked",
-                "09:30 AM"
+                _getStatusText(),
+                _getTimeText()
               ],
               height: 150,
             ),
 
             _buildTopAlignedInfoBox(
               title: 'Upcoming Leave',
-              subtitle: '04 Jun - 07 Jun',
+              subtitle: 'No Upcoming Leaves',
               icon: Icons.beach_access,
               color: boxColor,
               textColor: textColor,
@@ -106,11 +151,14 @@ class _DashboardPageState extends State<DashboardPage> {
                   child: _buildCenteredButtonBox(
                     title: 'Clock In',
                     icon: Icons.login,
-                    backgroundColor: Colors.blue,
+                    backgroundColor: clockInOutController.status == ClockStatus.clockedIn
+                        ? Colors.grey
+                        : Colors.blue,
                     height: 130,
-                    onTap: () async {
+                    onTap: clockInOutController.status == ClockStatus.clockedIn
+                        ? () {} // Disable if already clocked in
+                        : () async {
                       await clockInOutController.clockIn(context);
-                      setState(() {});
                     },
                   ),
                 ),
@@ -119,11 +167,14 @@ class _DashboardPageState extends State<DashboardPage> {
                   child: _buildCenteredButtonBox(
                     title: 'Clock Out',
                     icon: Icons.logout,
-                    backgroundColor: Colors.blue,
+                    backgroundColor: clockInOutController.status == ClockStatus.clockedIn
+                        ? Colors.blue
+                        : Colors.grey,
                     height: 130,
-                    onTap: () async {
+                    onTap: clockInOutController.status != ClockStatus.clockedIn
+                        ? () {} // Disable if not clocked in
+                        : () async {
                       await clockInOutController.clockOut(context);
-                      setState(() {});
                     },
                   ),
                 ),
@@ -289,7 +340,7 @@ class _DashboardPageState extends State<DashboardPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: List.generate(2, (index) {
                   final String text = index == 0 ? title : subtitle;
-                  final double fontSize = index == 0 ? 20 : 32;
+                  final double fontSize = index == 0 ? 20 : 28;
                   final FontWeight fontWeight = FontWeight.bold;
                   final double bottomSpacing = index == 0 ? 8 : 0;
 

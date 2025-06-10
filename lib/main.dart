@@ -1,14 +1,24 @@
-import 'theme/themes.dart';
 import 'package:flutter/material.dart';
-// Import your page files here when they are created
+import 'package:flutter_displaymode/flutter_displaymode.dart';
+
+import 'theme/themes.dart';
 import 'screens/login_page.dart';
-// import 'dashboard_page.dart';
+import 'screens/dashboard_page.dart';
 // import 'attendance_history_page.dart';
 // import 'apply_leave_page.dart';
 // import 'team_attendance_page.dart';
 // import 'leave_requests_page.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  try {
+    // Set the highest refresh rate supported by the device
+    await FlutterDisplayMode.setHighRefreshRate();
+  } catch (e) {
+    debugPrint('Failed to set high refresh rate: $e');
+  }
+
   runApp(const MyApp());
 }
 
@@ -18,7 +28,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Employee Tracker',
+      title: 'Codm Go',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.system,
       theme: AppTheme.lightTheme,
@@ -26,12 +36,12 @@ class MyApp extends StatelessWidget {
       initialRoute: '/login',
       routes: {
         '/login': (context) => const LoginPage(),
+        // Add routes when available
       },
     );
   }
 }
 
-// Placeholder widget for routing until actual pages are implemented
 class PlaceholderWidget extends StatelessWidget {
   final String title;
   const PlaceholderWidget({super.key, required this.title});
