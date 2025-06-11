@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:codmgo2/screens/clock_in_out.dart';
 import 'package:codmgo2/utils/clock_in_out_logic.dart';
+import '../utils/logout_logic.dart';
+import 'attendence_history.dart';
+import 'package:animations/animations.dart';
 
 class DashboardPage extends StatefulWidget {
   final String firstName;
@@ -19,28 +22,56 @@ class DashboardPage extends StatefulWidget {
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
-class _DashboardPageState extends State<DashboardPage> {
+class _DashboardPageState extends State<DashboardPage> with TickerProviderStateMixin {
   late final ClockInOutController clockInOutController;
+  late AnimationController _scaleAnimationController;
+  late AnimationController _clockInButtonController;
+  late AnimationController _clockOutButtonController;
+  late Animation<double> _scaleAnimation;
 
   @override
   void initState() {
     super.initState();
     clockInOutController = ClockInOutController();
-    // Add listener to rebuild UI when status changes
     clockInOutController.addListener(_onClockStatusChanged);
+
+    // Initialize animation controllers
+    _scaleAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 150),
+      vsync: this,
+    );
+
+    _clockInButtonController = AnimationController(
+      duration: const Duration(milliseconds: 100),
+      vsync: this,
+    );
+
+    _clockOutButtonController = AnimationController(
+      duration: const Duration(milliseconds: 100),
+      vsync: this,
+    );
+
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.95,
+    ).animate(CurvedAnimation(
+      parent: _scaleAnimationController,
+      curve: Curves.easeInOut,
+    ));
   }
 
   @override
   void dispose() {
     clockInOutController.removeListener(_onClockStatusChanged);
     clockInOutController.dispose();
+    _scaleAnimationController.dispose();
+    _clockInButtonController.dispose();
+    _clockOutButtonController.dispose();
     super.dispose();
   }
 
   void _onClockStatusChanged() {
-    if (mounted) {
-      setState(() {});
-    }
+    if (mounted) setState(() {});
   }
 
   String _getStatusText() {
@@ -56,7 +87,6 @@ class _DashboardPageState extends State<DashboardPage> {
 
   String _getTimeText() {
     DateTime? timeToShow;
-
     switch (clockInOutController.status) {
       case ClockStatus.clockedIn:
         timeToShow = clockInOutController.inTime;
@@ -85,7 +115,7 @@ class _DashboardPageState extends State<DashboardPage> {
     final isDarkMode = theme.brightness == Brightness.dark;
 
     final Color textColor = isDarkMode ? Colors.white : Colors.black;
-    final Color boxColor = isDarkMode ? Colors.grey[850]! : const Color(0xFFF8F8FF);
+    final Color boxColor = isDarkMode ? Colors.grey[900]!.withOpacity(0.9) : const Color(0xFFF8F8FF);
 
     return Scaffold(
       appBar: PreferredSize(
@@ -109,30 +139,26 @@ class _DashboardPageState extends State<DashboardPage> {
               'Hello',
               style: TextStyle(
                 fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: textColor,
+                fontWeight: FontWeight.normal,
+                color: textColor.withOpacity(0.8),
               ),
             ),
             const SizedBox(height: 4),
             Text(
               '${widget.firstName} ${widget.lastName}',
               style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.w600,
+                fontSize: 34,
+                fontWeight: FontWeight.bold,
                 color: textColor,
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
 
             _buildDetailedInfoBox(
               color: boxColor,
               textColor: textColor,
               icon: Icons.event,
-              lines: [
-                "Today's Attendance",
-                _getStatusText(),
-                _getTimeText()
-              ],
+              lines: ["Today's Attendance", _getStatusText(), _getTimeText()],
               height: 150,
             ),
 
@@ -148,87 +174,94 @@ class _DashboardPageState extends State<DashboardPage> {
             Row(
               children: [
                 Expanded(
-                  child: _buildCenteredButtonBox(
+                  child: _buildAnimatedCenteredButtonBox(
                     title: 'Clock In',
                     icon: Icons.login,
                     backgroundColor: clockInOutController.status == ClockStatus.clockedIn
-                        ? Colors.grey
-                        : Colors.blue,
+                        ? Colors.grey.shade700
+                        : Colors.blueAccent,
                     height: 130,
+                    isEnabled: clockInOutController.status != ClockStatus.clockedIn,
+                    animationController: _clockInButtonController,
                     onTap: clockInOutController.status == ClockStatus.clockedIn
-                        ? () {} // Disable if already clocked in
+                        ? () {}
                         : () async {
+                      _clockInButtonController.forward().then((_) {
+                        _clockInButtonController.reverse();
+                      });
                       await clockInOutController.clockIn(context);
                     },
                   ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
-                  child: _buildCenteredButtonBox(
+                  child: _buildAnimatedCenteredButtonBox(
                     title: 'Clock Out',
                     icon: Icons.logout,
-                    backgroundColor: clockInOutController.status == ClockStatus.clockedIn
-                        ? Colors.blue
-                        : Colors.grey,
+                    backgroundColor: clockInOutController.status != ClockStatus.clockedIn
+                        ? Colors.grey.shade700
+                        : Colors.blueAccent,
                     height: 130,
+                    isEnabled: clockInOutController.status == ClockStatus.clockedIn,
+                    animationController: _clockOutButtonController,
                     onTap: clockInOutController.status != ClockStatus.clockedIn
-                        ? () {} // Disable if not clocked in
+                        ? () {}
                         : () async {
+                      _clockOutButtonController.forward().then((_) {
+                        _clockOutButtonController.reverse();
+                      });
                       await clockInOutController.clockOut(context);
                     },
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
 
+            const SizedBox(height: 16),
             Text(
               'More Options',
               style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.w600,
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
                 color: textColor,
               ),
             ),
             const SizedBox(height: 12),
 
-            _buildOptionBox(
-              title: 'Apply Leave',
-              icon: Icons.edit_calendar,
-              color: boxColor,
-              textColor: textColor,
-              onTap: () {
-                Navigator.push(context, MaterialPageRoute(builder: (context) => Placeholder()));
-              },
-            ),
-
-            _buildOptionBox(
-              title: 'Approve Leave',
-              icon: Icons.check_circle_outline,
-              color: boxColor,
-              textColor: textColor,
-              onTap: () {
-                Navigator.push(context, MaterialPageRoute(builder: (context) => Placeholder()));
-              },
-            ),
-
-            _buildOptionBox(
+            _buildAnimatedOptionBox(
               title: 'Attendance History',
               icon: Icons.history,
               color: boxColor,
               textColor: textColor,
               onTap: () {
-                Navigator.push(context, MaterialPageRoute(builder: (context) => Placeholder()));
+                HapticFeedback.heavyImpact();
+                Navigator.push(
+                  context,
+                  PageRouteBuilder(
+                    pageBuilder: (context, animation, secondaryAnimation) => AttendanceHistoryPage(
+                      employeeId: widget.employeeId,
+                    ),
+                    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                      return SharedAxisTransition(
+                        animation: animation,
+                        secondaryAnimation: secondaryAnimation,
+                        transitionType: SharedAxisTransitionType.horizontal,
+                        child: child,
+                      );
+                    },
+                  ),
+                );
               },
             ),
 
-            _buildOptionBox(
+            _buildAnimatedOptionBox(
               title: 'Logout',
               icon: Icons.exit_to_app,
               color: boxColor,
               textColor: textColor,
               onTap: () {
-                // Handle logout here
+                HapticFeedback.heavyImpact();
+                LogoutLogic.showLogoutDialog(context);
               },
             ),
           ],
@@ -252,57 +285,51 @@ class _DashboardPageState extends State<DashboardPage> {
         color: color,
         borderRadius: BorderRadius.circular(20),
         boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4)),
+          BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 5)),
         ],
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Icon(icon, size: 32, color: textColor),
+          const SizedBox(width: 12),
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, size: 32, color: textColor),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: List.generate(lines.length, (index) {
-                  double fontSize;
-                  FontWeight fontWeight;
-                  double bottomSpacing;
+            children: List.generate(lines.length, (index) {
+              double fontSize;
+              FontWeight fontWeight;
+              double spacing;
 
-                  switch (index) {
-                    case 0:
-                      fontSize = 20;
-                      fontWeight = FontWeight.bold;
-                      bottomSpacing = 8;
-                      break;
-                    case 1:
-                      fontSize = 16;
-                      fontWeight = FontWeight.w500;
-                      bottomSpacing = 6;
-                      break;
-                    case 2:
-                    default:
-                      fontSize = 32;
-                      fontWeight = FontWeight.bold;
-                      bottomSpacing = 0;
-                      break;
-                  }
+              switch (index) {
+                case 0:
+                  fontSize = 20;
+                  fontWeight = FontWeight.bold;
+                  spacing = 8;
+                  break;
+                case 1:
+                  fontSize = 16;
+                  fontWeight = FontWeight.w500;
+                  spacing = 6;
+                  break;
+                default:
+                  fontSize = 32;
+                  fontWeight = FontWeight.bold;
+                  spacing = 0;
+                  break;
+              }
 
-                  return Padding(
-                    padding: EdgeInsets.only(bottom: bottomSpacing),
-                    child: Text(
-                      lines[index],
-                      style: TextStyle(
-                        fontSize: fontSize,
-                        fontWeight: fontWeight,
-                        color: textColor,
-                      ),
-                    ),
-                  );
-                }),
-              ),
-            ],
+              return Padding(
+                padding: EdgeInsets.only(bottom: spacing),
+                child: Text(
+                  lines[index],
+                  style: TextStyle(
+                    fontSize: fontSize,
+                    fontWeight: fontWeight,
+                    color: textColor,
+                  ),
+                ),
+              );
+            }),
           ),
         ],
       ),
@@ -325,38 +352,22 @@ class _DashboardPageState extends State<DashboardPage> {
         color: color,
         borderRadius: BorderRadius.circular(20),
         boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4)),
+          BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 5)),
         ],
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Icon(icon, size: 32, color: textColor),
+          const SizedBox(width: 12),
+          Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, size: 32, color: textColor),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: List.generate(2, (index) {
-                  final String text = index == 0 ? title : subtitle;
-                  final double fontSize = index == 0 ? 20 : 28;
-                  final FontWeight fontWeight = FontWeight.bold;
-                  final double bottomSpacing = index == 0 ? 8 : 0;
-
-                  return Padding(
-                    padding: EdgeInsets.only(bottom: bottomSpacing),
-                    child: Text(
-                      text,
-                      style: TextStyle(
-                        fontSize: fontSize,
-                        fontWeight: fontWeight,
-                        color: textColor,
-                      ),
-                    ),
-                  );
-                }),
-              ),
+              Text(title,
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor)),
+              const SizedBox(height: 8),
+              Text(subtitle,
+                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: textColor)),
             ],
           ),
         ],
@@ -364,85 +375,111 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  Widget _buildCenteredButtonBox({
+  Widget _buildAnimatedCenteredButtonBox({
     required String title,
     required IconData icon,
     required Color backgroundColor,
     required double height,
+    required bool isEnabled,
+    required AnimationController animationController,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: height,
-        margin: const EdgeInsets.only(bottom: 20),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: backgroundColor,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: const [
-            BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4))
-          ],
-        ),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 36, color: Colors.white),
-              const SizedBox(height: 8),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
+    return AnimatedBuilder(
+      animation: animationController,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: 1.0 - (animationController.value * 0.05),
+          child: GestureDetector(
+            onTap: isEnabled ? onTap : null,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              height: height,
+              margin: const EdgeInsets.only(bottom: 20),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: backgroundColor,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black26,
+                    blurRadius: isEnabled ? 10 : 5,
+                    offset: Offset(0, isEnabled ? 5 : 2),
+                  )
+                ],
+              ),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(icon, size: 36, color: Colors.white),
+                    const SizedBox(height: 8),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildOptionBox({
+  Widget _buildAnimatedOptionBox({
     required String title,
     required IconData icon,
     required Color color,
     required Color textColor,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 80,
-        margin: const EdgeInsets.only(bottom: 20),
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: const [
-            BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4))
-          ],
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 28, color: textColor),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: textColor,
-                ),
+    return AnimatedBuilder(
+      animation: _scaleAnimation,
+      builder: (context, child) {
+        return GestureDetector(
+          onTapDown: (_) => _scaleAnimationController.forward(),
+          onTapUp: (_) => _scaleAnimationController.reverse(),
+          onTapCancel: () => _scaleAnimationController.reverse(),
+          onTap: onTap,
+          child: Transform.scale(
+            scale: _scaleAnimation.value,
+            child: Container(
+              height: 80,
+              margin: const EdgeInsets.only(bottom: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 5))
+                ],
+              ),
+              child: Row(
+                children: [
+                  Icon(icon, size: 28, color: textColor),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: textColor,
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.arrow_forward_ios, size: 16, color: textColor),
+                ],
               ),
             ),
-            Icon(Icons.arrow_forward_ios, size: 16, color: textColor),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

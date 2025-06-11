@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:codmgo2/utils/clock_in_out_logic.dart';
+import 'package:animations/animations.dart';
 
 class ClockInOutController with ChangeNotifier {
   final ClockInOutLogic _logic = ClockInOutLogic();
@@ -37,50 +38,6 @@ class ClockInOutController with ChangeNotifier {
         double popupIconSize = 120,
         TextStyle? textStyle,
       }) async {
-    // Check if already performed action today
-    // COMMENTED OUT TO ALLOW MULTIPLE CLOCK INS/OUTS
-//
-
-    if (isClockIn) {
-      final alreadyClockedIn = await _logic.checkIfAlreadyClockedInToday();
-      if (alreadyClockedIn) {
-        if (context.mounted) {
-          _showSnackBar(
-            context,
-            'You have already clocked in today!',
-            Colors.orange,
-          );
-        }
-        return;
-      }
-    } else {
-      final alreadyClockedOut = await _logic.checkIfAlreadyClockedOutToday();
-      if (alreadyClockedOut) {
-        if (context.mounted) {
-          _showSnackBar(
-            context,
-            'You have already clocked out today!',
-            Colors.orange,
-          );
-        }
-        return;
-      }
-
-      // For clock out, also check if clocked in today
-      final clockedInToday = await _logic.checkIfAlreadyClockedInToday();
-      if (!clockedInToday) {
-        if (context.mounted) {
-          _showSnackBar(
-            context,
-            'You need to clock in first!',
-            Colors.red,
-          );
-        }
-        return;
-      }
-    }
-
-//
 
     final now = DateTime.now();
     final dateStr = "${now.day}/${now.month}/${now.year}";
@@ -91,61 +48,84 @@ class ClockInOutController with ChangeNotifier {
 
     bool isLoading = false;
 
-    await showGeneralDialog(
+    await showModal<void>(
       context: context,
-      barrierDismissible: true,
-      barrierLabel: "Dismiss",
-      barrierColor: Colors.black.withOpacity(0.5),
-      transitionDuration: const Duration(milliseconds: 180),
-      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
-      transitionBuilder: (context, anim1, anim2, child) {
-        return FadeTransition(
-          opacity: anim1,
-          child: AlertDialog(
-            backgroundColor: Theme.of(context).brightness == Brightness.dark
-                ? Colors.grey[900]
-                : const Color(0xFFF8F8FF),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            contentPadding: const EdgeInsets.all(20),
-            content: StatefulBuilder(
-              builder: (context, setState) {
-                return SizedBox(
-                  width: popupWidth,
-                  height: popupHeight,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.access_time, size: popupIconSize),
-                      const SizedBox(height: 24),
-                      Text(
-                        "Date: $dateStr",
-                        style: textStyle ?? const TextStyle(fontSize: 32, fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        "Time: $timeStr",
-                        style: textStyle ?? const TextStyle(fontSize: 32, fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 36),
-                      SizedBox(
-                        width: 250,
-                        height: 52,
-                        child: ElevatedButton(
-                          style: ButtonStyle(
-                            backgroundColor: WidgetStateProperty.all(Colors.blue),
-                            foregroundColor: WidgetStateProperty.all(Colors.white),
-                            textStyle: WidgetStateProperty.all(const TextStyle(fontSize: 18)),
-                            shape: WidgetStateProperty.all(
-                              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 16)),
+      configuration: const FadeScaleTransitionConfiguration(
+        barrierDismissible: true,
+        transitionDuration: Duration(milliseconds: 300),
+        reverseTransitionDuration: Duration(milliseconds: 200),
+      ),
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              backgroundColor: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.grey[900]
+                  : const Color(0xFFF8F8FF),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              contentPadding: const EdgeInsets.all(20),
+              content: SizedBox(
+                width: popupWidth,
+                height: popupHeight,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.access_time, size: popupIconSize),
+                    const SizedBox(height: 24),
+                    Text(
+                      "Date: $dateStr",
+                      style: textStyle ?? const TextStyle(fontSize: 32, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      "Time: $timeStr",
+                      style: textStyle ?? const TextStyle(fontSize: 32, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 36),
+                    SizedBox(
+                      width: 250,
+                      height: 52,
+                      child: ElevatedButton(
+                        style: ButtonStyle(
+                          backgroundColor: WidgetStateProperty.all(Colors.blueAccent),
+                          foregroundColor: WidgetStateProperty.all(Colors.white),
+                          textStyle: WidgetStateProperty.all(const TextStyle(fontSize: 18)),
+                          shape: WidgetStateProperty.all(
+                            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
-                          onPressed: isLoading
-                              ? null
-                              : () async {
-                            HapticFeedback.heavyImpact();
-                            setState(() => isLoading = true);
+                          padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 16)),
+                        ),
+                        onPressed: isLoading
+                            ? null
+                            : () async {
+                          HapticFeedback.heavyImpact();
+                          setState(() => isLoading = true);
 
+                          // Check validation first
+                          bool canProceed = true;
+                          String? errorMessage;
+
+                          if (isClockIn) {
+                            final alreadyClockedIn = await _logic.checkIfAlreadyClockedInToday();
+                            if (alreadyClockedIn) {
+                              canProceed = false;
+                              errorMessage = 'You have already clocked in today!';
+                            }
+                          } else {
+                            final alreadyClockedOut = await _logic.checkIfAlreadyClockedOutToday();
+                            if (alreadyClockedOut) {
+                              canProceed = false;
+                              errorMessage = 'You have already clocked out today!';
+                            } else {
+                              final clockedInToday = await _logic.checkIfAlreadyClockedInToday();
+                              if (!clockedInToday) {
+                                canProceed = false;
+                                errorMessage = 'You need to clock in first!';
+                              }
+                            }
+                          }
+
+                          if (canProceed) {
                             final result = await _logic.attemptClockInOut(isClockIn: isClockIn);
 
                             if (context.mounted) {
@@ -156,40 +136,49 @@ class ClockInOutController with ChangeNotifier {
                                 result['success'] ? Colors.green : Colors.red,
                               );
                             }
+                          } else {
+                            if (context.mounted) {
+                              Navigator.of(context).pop();
+                              _showSnackBar(
+                                context,
+                                errorMessage!,
+                                Colors.orange,
+                              );
+                            }
+                          }
 
-                            setState(() => isLoading = false);
-                          },
-                          child: isLoading
-                              ? const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
+                          setState(() => isLoading = false);
+                        },
+                        child: isLoading
+                            ? const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                               ),
-                              SizedBox(width: 10),
-                              Text(
-                                'Processing...',
-                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-                              ),
-                            ],
-                          )
-                              : Text(
-                            isClockIn ? 'Clock In' : 'Clock Out',
-                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-                          ),
+                            ),
+                            SizedBox(width: 10),
+                            Text(
+                              'Processing...',
+                              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        )
+                            : Text(
+                          isClockIn ? 'Clock In' : 'Clock Out',
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
                         ),
                       ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
         );
       },
     );

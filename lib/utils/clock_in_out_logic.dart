@@ -19,7 +19,7 @@ class ClockInOutLogic with ChangeNotifier {
   Timer? _notificationTimer;
   Timer? _autoClockOutTimer;
   int _notificationCount = 0;
-  static const int _maxNotifications = 5;
+  static const int _maxNotifications = 3;
 
   double officeLat = 28.55122201233124;
   double officeLng = 77.32420167559967;
