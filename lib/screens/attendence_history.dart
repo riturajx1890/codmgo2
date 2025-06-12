@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:codmgo2/screens/clock_in_out.dart';
@@ -429,7 +430,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
             style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
-               // Or use your `textColor` variable if dynamic
+              // Or use your `textColor` variable if dynamic
             ),
           ),
 

@@ -18,8 +18,12 @@ class ClockInOutLogic with ChangeNotifier {
   DateTime? outTime;
   Timer? _notificationTimer;
   Timer? _autoClockOutTimer;
+  Timer? _eighteenHourTimer;
   int _notificationCount = 0;
   static const int _maxNotifications = 3;
+
+  bool _canClockIn = true;
+  bool _canClockOut = false;
 
   double officeLat = 28.55122201233124;
   double officeLng = 77.32420167559967;
@@ -31,6 +35,8 @@ class ClockInOutLogic with ChangeNotifier {
   String? userEmail;
 
   ClockStatus get status => _status;
+  bool get canClockIn => _canClockIn;
+  bool get canClockOut => _canClockOut;
 
   String get statusText {
     switch (_status) {
@@ -52,6 +58,7 @@ class ClockInOutLogic with ChangeNotifier {
   void dispose() {
     _notificationTimer?.cancel();
     _autoClockOutTimer?.cancel();
+    _eighteenHourTimer?.cancel();
     super.dispose();
   }
 
@@ -86,21 +93,60 @@ class ClockInOutLogic with ChangeNotifier {
             _status = ClockStatus.clockedOut;
             inTime = DateTime.parse(todayAttendance['In_Time__c']).toLocal();
             outTime = DateTime.parse(todayAttendance['Out_Time__c']).toLocal();
+            _canClockIn = false;
+            _canClockOut = false;
             _logger.i('Found completed attendance for today');
+            // _startEighteenHourTimer(); // Comment out this line
           } else {
             // Already clocked in today
             _status = ClockStatus.clockedIn;
             inTime = DateTime.parse(todayAttendance['In_Time__c']).toLocal();
+            _canClockIn = false;
+            _canClockOut = true;
             _logger.i('Found active clock-in for today');
             _startNotificationTimer();
             _startAutoClockOutTimer();
+            // _startEighteenHourTimer(); // Comment out this line
           }
           notifyListeners();
+        } else {
+          // No attendance today
+          _canClockIn = true;
+          _canClockOut = false;
+          _logger.i('No attendance found for today');
         }
       } catch (e, stackTrace) {
         _logger.e('Error loading today\'s status: $e', error: e, stackTrace: stackTrace);
       }
     }
+  }
+
+  void _startEighteenHourTimer() {
+    if (inTime == null) return;
+
+    _eighteenHourTimer?.cancel();
+
+    final now = DateTime.now();
+    final clockInTime = inTime!;
+    final elapsed = now.difference(clockInTime);
+    const eighteenHourDelay = Duration(hours: 0);
+
+    Duration initialDelay;
+    if (elapsed >= eighteenHourDelay) {
+      // If already past 18 hours, enable clock in immediately
+      initialDelay = Duration.zero;
+    } else {
+      // Time until 18 hours complete
+      initialDelay = eighteenHourDelay - elapsed;
+    }
+
+    _logger.i('Starting 18-hour timer - will enable clock in after: ${initialDelay.inHours} hours ${initialDelay.inMinutes % 60} minutes');
+
+    _eighteenHourTimer = Timer(initialDelay, () {
+      _logger.i('18 hours completed - enabling clock in');
+      _canClockIn = true;
+      notifyListeners();
+    });
   }
 
   void _startNotificationTimer() {
@@ -200,26 +246,21 @@ class ClockInOutLogic with ChangeNotifier {
         );
 
         if (todayAttendance != null && todayAttendance['Id'] != null && todayAttendance['Out_Time__c'] == null) {
-          final success = await ClockInOutService.clockOut(
-            accessToken!,
-            instanceUrl!,
-            todayAttendance['Id'],
-            DateTime.now().toUtc(),
-          );
+          // For auto clock out, we don't save the out_time (it will be blank)
+          _logger.i('Auto clock out - marking status as clocked out but not saving out_time');
 
-          if (success) {
-            _logger.i('Auto clock out successful');
-            _status = ClockStatus.clockedOut;
-            outTime = DateTime.now();
-            _notificationTimer?.cancel();
-            _autoClockOutTimer?.cancel();
-            notifyListeners();
+          _status = ClockStatus.clockedOut;
+          outTime = null; // Keep out time as null for auto clock out
+          _canClockIn = false; // Will be enabled after 18 hours
+          _canClockOut = false;
+          _notificationTimer?.cancel();
+          _autoClockOutTimer?.cancel();
+          notifyListeners();
 
-            // Send notification about auto clock out
-            await _sendAutoClockOutNotification();
-          } else {
-            _logger.e('Auto clock out failed');
-          }
+          // Send notification about auto clock out
+          await _sendAutoClockOutNotification();
+
+          _logger.i('Auto clock out completed - out_time kept blank');
         }
       }
     } catch (e, stackTrace) {
@@ -426,6 +467,24 @@ class ClockInOutLogic with ChangeNotifier {
   Future<Map<String, dynamic>> attemptClockInOut({required bool isClockIn}) async {
     _logger.i('Starting clock ${isClockIn ? "in" : "out"} attempt');
 
+    // Check 18-hour restriction for clock in
+    // if (isClockIn && !_canClockIn) {
+    //   _logger.w('Clock in attempted but not allowed - 18 hours not completed');
+    //   return {
+    //     'success': false,
+    //     'message': 'You can only clock in once in a day.',
+    //   };
+    // }
+
+    // Check if user can clock out
+    if (!isClockIn && !_canClockOut) {
+      _logger.w('Clock out attempted but not allowed');
+      return {
+        'success': false,
+        'message': 'You need to clock in first.',
+      };
+    }
+
     final locationResult = await _isWithinRadius();
     if (!locationResult['isInRadius']) {
       _logger.w('Location check failed: ${locationResult['message']}');
@@ -481,8 +540,11 @@ class ClockInOutLogic with ChangeNotifier {
           _status = ClockStatus.clockedIn;
           inTime = DateTime.now(); // Store local time for UI
           outTime = null;
+          _canClockIn = false;
+          _canClockOut = true;
           _startNotificationTimer();
           _startAutoClockOutTimer();
+          // _startEighteenHourTimer(); // Comment out this line
           notifyListeners();
 
           return {
@@ -518,8 +580,11 @@ class ClockInOutLogic with ChangeNotifier {
             _logger.i('Clock out successful');
             _status = ClockStatus.clockedOut;
             outTime = DateTime.now(); // Store local time for UI
+            _canClockIn = false; // Will be enabled after 18 hours
+            _canClockOut = false;
             _notificationTimer?.cancel();
             _autoClockOutTimer?.cancel();
+            // _eighteenHourTimer?.cancel(); // You might also want to cancel the timer here if it's running
             notifyListeners();
 
             return {
