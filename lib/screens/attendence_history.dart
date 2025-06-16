@@ -1,12 +1,11 @@
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:codmgo2/screens/clock_in_out.dart';
-import 'package:codmgo2/services/clock_in_out_service.dart'; // Import your ClockInOutService
+import 'package:codmgo2/services/clock_in_out_service.dart';
+import 'package:codmgo2/utils/bottom_navigation_bar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../utils/clock_in_out_logic.dart';
-
 
 class AttendanceHistoryPage extends StatefulWidget {
   final String employeeId;
@@ -24,6 +23,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   late final ClockInOutController clockInOutController;
   List<Map<String, dynamic>> attendanceHistory = [];
   bool isLoading = true;
+  int _currentIndex = 2; // Set to 2 for Attendance History
 
   @override
   void initState() {
@@ -59,7 +59,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
 
         if (records != null) {
           setState(() {
-            attendanceHistory = records.take(7).toList(); // Get last 7 records
+            attendanceHistory = records.take(7).toList();
             isLoading = false;
           });
         } else {
@@ -76,6 +76,26 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
       setState(() {
         isLoading = false;
       });
+    }
+  }
+
+  void _onBottomNavTap(int index) {
+    if (index == _currentIndex) return; // Don't navigate to the same page
+
+    switch (index) {
+      case 0:
+      // Navigate back to Dashboard
+        Navigator.pop(context);
+        break;
+      case 1:
+      // Navigate to Leave page
+        break;
+      case 2:
+      // Already on Attendance History
+        break;
+      case 3:
+      // Navigate to Profile page
+        break;
     }
   }
 
@@ -145,7 +165,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   }
 
   String _calculateTotalHours(String? inTime, String? outTime) {
-    if (inTime == null || outTime == null) return "0 hour: 0 minutes";
+    if (inTime == null || outTime == null) return "0 hrs 0 mins";
 
     try {
       final inDateTime = DateTime.parse(inTime);
@@ -155,181 +175,287 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
       final hours = difference.inHours;
       final minutes = difference.inMinutes % 60;
 
-      return '$hours hour${hours != 1 ? ' ' : ''}: $minutes minute${minutes != 1 ? 's' : ''}';
+      return '${hours}h ${minutes}m';
     } catch (e) {
       return "--:-- hrs";
     }
   }
 
-
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDarkMode = theme.brightness == Brightness.dark;
-
     final Color textColor = isDarkMode ? Colors.white : Colors.black;
-    final Color boxColor = isDarkMode ? Colors.grey[900]!.withOpacity(0.9) : const Color(0xFFF8F8FF);
+    final Color cardColor = isDarkMode
+        ? Colors.grey[850]!.withOpacity(0.95)
+        : const Color(0xFFF8F9FA);
+    final Color backgroundColor = isDarkMode ? Colors.black : const Color(0xFFFAFAFA);
 
     return Scaffold(
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(60),
-        child: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: IconButton(
-            icon: Icon(
-              Icons.arrow_back,
-              color: textColor,
-              size: 28,
-            ),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-          title: Text(
-            'Attendance',
-            style: TextStyle(
-              color: textColor,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          systemOverlayStyle: SystemUiOverlayStyle(
-            statusBarColor: Colors.transparent,
-            statusBarIconBrightness: isDarkMode ? Brightness.light : Brightness.dark,
-            statusBarBrightness: isDarkMode ? Brightness.dark : Brightness.light,
-          ),
+      backgroundColor: backgroundColor,
+      appBar: AppBar(
+        backgroundColor: backgroundColor,
+        elevation: 0,
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: isDarkMode ? Brightness.light : Brightness.dark,
+          statusBarBrightness: isDarkMode ? Brightness.dark : Brightness.light,
         ),
-      ),
-      body: Container(
-        color: isDarkMode ? Colors.black : Colors.white,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
-          children: [
-            // Today's Attendance Status
-            _buildDetailedInfoBox(
-              color: boxColor,
-              textColor: textColor,
-              icon: Icons.event,
-              lines: ["Today's Attendance", _getStatusText(), _getTimeText()],
-              height: 150,
-            ),
-
-            const SizedBox(height: 24),
-
-            // Attendance History Title
-            Text(
-              'Attendance History',
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
+        toolbarHeight: 80,
+        leading: Padding(
+          padding: const EdgeInsets.only(left: 20),
+          child: GestureDetector(
+            onTap: () => Navigator.of(context).pop(),
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 16),
+              decoration: BoxDecoration(
+                color: cardColor,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: isDarkMode ? Colors.black26 : Colors.grey.withOpacity(0.1),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Icon(
+                Icons.arrow_back_ios_new,
                 color: textColor,
+                size: 20,
               ),
             ),
-            const SizedBox(height: 12),
+          ),
+        ),
+        title: Text(
+          'Attendance History',
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.w700,
+            color: textColor,
+          ),
+        ),
+        centerTitle: false,
+      ),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        children: [
+          // Today's Attendance Card - matching dashboard style
+          _buildTodaysAttendanceCard(cardColor, textColor, isDarkMode),
 
-            // Loading or History Cards
-            if (isLoading)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(40.0),
-                  child: CircularProgressIndicator(),
-                ),
-              )
-            else if (attendanceHistory.isEmpty)
+          const SizedBox(height: 32),
+
+          // Section Title
+          Text(
+            'Recent Activity',
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w700,
+              color: textColor,
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Loading or History Cards
+          if (isLoading)
+            _buildLoadingCard(cardColor, isDarkMode)
+          else if (attendanceHistory.isEmpty)
+            _buildEmptyStateCard(cardColor, textColor, isDarkMode)
+          else
+            ...attendanceHistory.map((record) => _buildAttendanceCard(
+              record: record,
+              cardColor: cardColor,
+              textColor: textColor,
+              isDarkMode: isDarkMode,
+            )),
+        ],
+      ),
+      bottomNavigationBar: CustomBottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: _onBottomNavTap,
+        isDarkMode: isDarkMode,
+      ),
+    );
+  }
+
+  Widget _buildTodaysAttendanceCard(Color cardColor, Color textColor, bool isDarkMode) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: isDarkMode ? Colors.black26 : Colors.grey.withOpacity(0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
               Container(
-                height: 120,
-                margin: const EdgeInsets.only(bottom: 20),
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: boxColor,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: const [
-                    BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 5)),
-                  ],
+                  color: Colors.blueAccent.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                child: Center(
-                  child: Text(
-                    'No attendance history found',
+                child: const Icon(
+                  Icons.access_time,
+                  size: 24,
+                  color: Colors.blueAccent,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                "Today's Attendance",
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: textColor.withOpacity(0.8),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Status',
                     style: TextStyle(
-                      fontSize: 18,
+                      fontSize: 14,
                       fontWeight: FontWeight.w500,
-                      color: textColor.withOpacity(0.7),
+                      color: textColor.withOpacity(0.6),
                     ),
                   ),
-                ),
-              )
-            else
-              ...attendanceHistory.map((record) => _buildAttendanceCard(
-                record: record,
-                color: boxColor,
-                textColor: textColor,
-              )),
-          ],
+                  const SizedBox(height: 4),
+                  Text(
+                    _getStatusText(),
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: textColor,
+                    ),
+                  ),
+                ],
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    'Time',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: textColor.withOpacity(0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _getTimeText(),
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.blueAccent,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingCard(Color cardColor, bool isDarkMode) {
+    return Container(
+      height: 140, // Same height as today's attendance card
+      padding: const EdgeInsets.all(24),
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: isDarkMode ? Colors.black26 : Colors.grey.withOpacity(0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: const Center(
+        child: CircularProgressIndicator(
+          color: Colors.blueAccent,
+          strokeWidth: 2.5,
         ),
       ),
     );
   }
 
-  Widget _buildDetailedInfoBox({
-    required IconData icon,
-    required List<String> lines,
-    required Color color,
-    required Color textColor,
-    required double height,
-  }) {
+  Widget _buildEmptyStateCard(Color cardColor, Color textColor, bool isDarkMode) {
     return Container(
-      height: height,
-      margin: const EdgeInsets.only(bottom: 20),
-      padding: const EdgeInsets.all(16),
+      height: 140, // Same height as today's attendance card
+      padding: const EdgeInsets.all(24),
+      margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: const [
-          BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 5)),
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: isDarkMode ? Colors.black26 : Colors.grey.withOpacity(0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
         ],
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 32, color: textColor),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.grey.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              Icons.history,
+              size: 24,
+              color: textColor.withOpacity(0.5),
+            ),
+          ),
           const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: List.generate(lines.length, (index) {
-              double fontSize;
-              FontWeight fontWeight;
-              double spacing;
-
-              switch (index) {
-                case 0:
-                  fontSize = 20;
-                  fontWeight = FontWeight.bold;
-                  spacing = 8;
-                  break;
-                case 1:
-                  fontSize = 16;
-                  fontWeight = FontWeight.w500;
-                  spacing = 6;
-                  break;
-                default:
-                  fontSize = 32;
-                  fontWeight = FontWeight.bold;
-                  spacing = 0;
-                  break;
-              }
-
-              return Padding(
-                padding: EdgeInsets.only(bottom: spacing),
-                child: Text(
-                  lines[index],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'No Records Found',
                   style: TextStyle(
-                    fontSize: fontSize,
-                    fontWeight: fontWeight,
-                    color: textColor,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: textColor.withOpacity(0.8),
                   ),
                 ),
-              );
-            }),
+                const SizedBox(height: 4),
+                Text(
+                  'Your attendance records will appear here',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: textColor.withOpacity(0.6),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -338,102 +464,141 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
 
   Widget _buildAttendanceCard({
     required Map<String, dynamic> record,
-    required Color color,
+    required Color cardColor,
     required Color textColor,
+    required bool isDarkMode,
   }) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      padding: const EdgeInsets.all(20),
+      height: 140, // Same height as today's attendance card
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: const [
-          BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, 5)),
+        color: cardColor,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: isDarkMode ? Colors.black26 : Colors.grey.withOpacity(0.1),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          // Date
-          Text(
-            'Date: ${_formatDate(record['CreatedDate'])}',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: textColor,
+          // Date Icon
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.green.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
             ),
-          ),
-          const SizedBox(height: 16),
-
-          // Clock In/Out Row
-          Row(
-            children: [
-              // Clock In
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Clocked In',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: textColor,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _formatTime(record['In_Time__c']),
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: textColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Clock Out
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Clocked Out',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: textColor,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _formatTime(record['Out_Time__c']),
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: textColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // Total Working Hours
-          Text(
-            'Total Working Hours: ${_calculateTotalHours(record['In_Time__c'], record['Out_Time__c'])}',
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              // Or use your `textColor` variable if dynamic
+            child: const Icon(
+              Icons.calendar_today,
+              size: 24,
+              color: Colors.green,
             ),
           ),
 
+          const SizedBox(width: 16),
+
+          // Content
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Date
+                Text(
+                  _formatDate(record['CreatedDate']),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: textColor.withOpacity(0.8),
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                // Times Row
+                Row(
+                  children: [
+                    // Clock In
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'In',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: textColor.withOpacity(0.6),
+                            ),
+                          ),
+                          Text(
+                            _formatTime(record['In_Time__c']),
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: textColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Clock Out
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Out',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: textColor.withOpacity(0.6),
+                            ),
+                          ),
+                          Text(
+                            _formatTime(record['Out_Time__c']),
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: textColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // Total Hours
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          'Total',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: textColor.withOpacity(0.6),
+                          ),
+                        ),
+                        Text(
+                          _calculateTotalHours(record['In_Time__c'], record['Out_Time__c']),
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.blueAccent,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

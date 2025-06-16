@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:codmgo2/services/clock_in_out_service.dart';
 import 'package:codmgo2/services/salesforce_api_service.dart';
 import 'package:logger/logger.dart';
 import 'dart:async';
+import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:codmgo2/utils/location_logic.dart'; // Import the new LocationLogic class
 
 enum ClockStatus { unmarked, clockedIn, clockedOut }
 
@@ -25,14 +28,12 @@ class ClockInOutLogic with ChangeNotifier {
   bool _canClockIn = true;
   bool _canClockOut = false;
 
-  double officeLat = 28.55122201233124;
-  double officeLng = 77.32420167559967;
-  double radiusInMeters = 250;
-
   String? accessToken;
   String? instanceUrl;
   String? employeeId;
   String? userEmail;
+
+  final LocationLogic _locationLogic = LocationLogic(); // Instance of LocationLogic
 
   ClockStatus get status => _status;
   bool get canClockIn => _canClockIn;
@@ -71,6 +72,66 @@ class ClockInOutLogic with ChangeNotifier {
     );
 
     await _notificationsPlugin.initialize(initSettings);
+  }
+
+  // Add this method to your ClockInOutService class
+
+  static Future<List<Map<String, dynamic>>> getAttendanceHistory(
+      String accessToken,
+      String instanceUrl,
+      String employeeId, {
+        int limit = 10,
+      }) async {
+    final Logger logger = Logger();
+
+    try {
+      // Calculate date range for the last 30 days to ensure we get enough records
+      final endDate = DateTime.now();
+      final startDate = endDate.subtract(const Duration(days: 30));
+
+      final startDateStr = DateFormat('yyyy-MM-dd').format(startDate);
+      final endDateStr = DateFormat('yyyy-MM-dd').format(endDate);
+
+      final query = """
+      SELECT Id, In_Time__c, Out_Time__c, Date__c 
+      FROM Attendance__c 
+      WHERE Employee__c = '$employeeId' 
+      AND Date__c >= $startDateStr 
+      AND Date__c <= $endDateStr 
+      ORDER BY Date__c DESC, In_Time__c DESC 
+      LIMIT $limit
+    """;
+
+      final uri = Uri.parse('$instanceUrl/services/data/v57.0/query/')
+          .replace(queryParameters: {'q': query});
+
+      logger.i('Fetching attendance history with query: $query');
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Authorization': 'Bearer $accessToken',
+          'Content-Type': 'application/json',
+        },
+      );
+
+      logger.i('Attendance history response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final records = data['records'] as List<dynamic>;
+
+        logger.i('Found ${records.length} attendance records');
+
+        return records.map((record) => record as Map<String, dynamic>).toList();
+      } else {
+        logger.e('Failed to fetch attendance history: ${response.statusCode} - ${response.body}');
+        return [];
+      }
+    } catch (e, stackTrace) {
+      logger.e('Error fetching attendance history: $e', error: e, stackTrace: stackTrace);
+      return [];
+    }
   }
 
   Future<void> _loadTodayStatus() async {
@@ -129,7 +190,7 @@ class ClockInOutLogic with ChangeNotifier {
     final now = DateTime.now();
     final clockInTime = inTime!;
     final elapsed = now.difference(clockInTime);
-    const eighteenHourDelay = Duration(hours: 0);
+    const eighteenHourDelay = Duration(hours: 18);
 
     Duration initialDelay;
     if (elapsed >= eighteenHourDelay) {
@@ -467,15 +528,6 @@ class ClockInOutLogic with ChangeNotifier {
   Future<Map<String, dynamic>> attemptClockInOut({required bool isClockIn}) async {
     _logger.i('Starting clock ${isClockIn ? "in" : "out"} attempt');
 
-    // Check 18-hour restriction for clock in
-    // if (isClockIn && !_canClockIn) {
-    //   _logger.w('Clock in attempted but not allowed - 18 hours not completed');
-    //   return {
-    //     'success': false,
-    //     'message': 'You can only clock in once in a day.',
-    //   };
-    // }
-
     // Check if user can clock out
     if (!isClockIn && !_canClockOut) {
       _logger.w('Clock out attempted but not allowed');
@@ -485,7 +537,7 @@ class ClockInOutLogic with ChangeNotifier {
       };
     }
 
-    final locationResult = await _isWithinRadius();
+    final locationResult = await _locationLogic.isWithinRadius();
     if (!locationResult['isInRadius']) {
       _logger.w('Location check failed: ${locationResult['message']}');
       return {
@@ -611,57 +663,6 @@ class ClockInOutLogic with ChangeNotifier {
       return {
         'success': false,
         'message': 'An error occurred: ${e.toString()}',
-      };
-    }
-  }
-
-  Future<Map<String, dynamic>> _isWithinRadius() async {
-    _logger.i('Checking if user is within office radius');
-
-    try {
-      _logger.i('Getting current position...');
-      Position position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 0,
-          timeLimit: Duration(seconds: 30),
-        ),
-      );
-
-      _logger.i('Current position: lat=${position.latitude}, lng=${position.longitude}, accuracy=${position.accuracy}m');
-
-      double distance = Geolocator.distanceBetween(
-        officeLat,
-        officeLng,
-        position.latitude,
-        position.longitude,
-      );
-
-      _logger.i('Distance from office: ${distance.toStringAsFixed(2)}m (radius limit: ${radiusInMeters}m)');
-
-      bool isInRadius = distance <= radiusInMeters;
-
-      String message;
-      if (isInRadius) {
-        message = "Within office radius";
-        _logger.i('User is within office radius');
-      } else {
-        double extraDistance = distance - radiusInMeters;
-        message = "You are ${extraDistance.toStringAsFixed(0)}m away from office";
-        _logger.w('User is outside office radius by ${extraDistance.toStringAsFixed(0)}m');
-      }
-
-      return {
-        'isInRadius': isInRadius,
-        'message': message,
-        'distance': distance,
-        'accuracy': position.accuracy,
-      };
-    } catch (e, stackTrace) {
-      _logger.e('Error getting location: $e', error: e, stackTrace: stackTrace);
-      return {
-        'isInRadius': false,
-        'message': 'Unable to get location. Please try again.',
       };
     }
   }

@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
-
+import 'package:geolocator/geolocator.dart';
+import 'package:logger/logger.dart'; // For logging
+import 'package:codmgo2/utils/location_logic.dart'; // Import LocationLogic
 import 'theme/themes.dart';
 import 'screens/login_page.dart';
 import 'screens/dashboard_page.dart';
@@ -36,6 +40,10 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  final LocationLogic _locationLogic = LocationLogic(); // Instantiate LocationLogic
+  final Logger _logger = Logger(); // Logger instance
+  StreamSubscription<Position>? _positionStreamSubscription; // To manage location stream
+
   @override
   void initState() {
     super.initState();
@@ -44,15 +52,39 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 
   Future<void> _initializeApp() async {
-    // Simulate app initialization (you can add your actual initialization here)
-    await Future.delayed(const Duration(milliseconds: 1500)); // 2.5 seconds
+    // Simulate app initialization
+    await Future.delayed(const Duration(milliseconds: 1500)); // 1.5 seconds
 
-    // Remove splash screen after 2.5 seconds
+    // Perform initial location check
+    await _checkLocation();
+
+    // Remove splash screen after initialization
     FlutterNativeSplash.remove();
+  }
+
+  Future<void> _checkLocation() async {
+    try {
+      _logger.i('Starting location check');
+      final result = await _locationLogic.isWithinRadius();
+      if (result['isInRadius']) {
+        _logger.i('User is within office radius: ${result['message']}');
+      } else {
+        _logger.w('User is outside office radius: ${result['message']}');
+      }
+    } catch (e, stackTrace) {
+      _logger.e('Error during location check: $e', error: e, stackTrace: stackTrace);
+    }
+  }
+
+  void _stopLocationChecks() {
+    _logger.i('Stopping location checks');
+    _positionStreamSubscription?.cancel();
+    _positionStreamSubscription = null;
   }
 
   @override
   void dispose() {
+    _stopLocationChecks();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -63,20 +95,25 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     switch (state) {
       case AppLifecycleState.resumed:
-        debugPrint('App resumed');
+        _logger.i('App resumed');
         _setDisplayMode();
+        _checkLocation(); // Perform location check when app resumes
         break;
       case AppLifecycleState.inactive:
-        debugPrint('App inactive');
+        _logger.i('App inactive');
+        _stopLocationChecks();
         break;
       case AppLifecycleState.paused:
-        debugPrint('App paused');
+        _logger.i('App paused');
+        _stopLocationChecks();
         break;
       case AppLifecycleState.detached:
-        debugPrint('App detached');
+        _logger.i('App detached');
+        _stopLocationChecks();
         break;
       case AppLifecycleState.hidden:
-        debugPrint('App hidden');
+        _logger.i('App hidden');
+        _stopLocationChecks();
         break;
     }
   }
@@ -85,7 +122,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     try {
       await FlutterDisplayMode.setHighRefreshRate();
     } catch (e) {
-      debugPrint('Failed to set high refresh rate on resume: $e');
+      _logger.e('Failed to set high refresh rate on resume: $e');
     }
   }
 

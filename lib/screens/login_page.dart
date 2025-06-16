@@ -4,11 +4,11 @@ import 'dart:async';
 import '../services/permission_service.dart';
 import '../services/salesforce_api_service.dart';
 import '../services/salesforce_auth_service.dart';
-import '../styles/spacing_style.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logger/logger.dart';
-import 'dashboard_page.dart';
+import '../utils/shared_prefs_utils.dart';
+import 'package:codmgo2/screens/dashboard_page.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -93,7 +93,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         _logger.i('Remember me found, days passed: $daysPassed');
 
         if (daysPassed < 45) {
-          // Get stored employee data
           final employeeId = prefs.getString('employee_id') ?? '';
           final firstName = prefs.getString('first_name') ?? '';
           final lastName = prefs.getString('last_name') ?? '';
@@ -169,8 +168,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       if (employee != null) {
         _logger.i('Employee found: ${employee['Name']} with ID: ${employee['Id']}');
 
-        // Save employee data immediately to SharedPreferences
-        await _saveEmployeeDataToPrefs(employee, accessToken, instanceUrl);
+        await SharedPrefsUtils.saveEmployeeDataToPrefs(employee, accessToken, instanceUrl);
 
         return {
           'employee': employee,
@@ -184,31 +182,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     } catch (e, stackTrace) {
       _logger.e('Salesforce login error: $e', error: e, stackTrace: stackTrace);
       return null;
-    }
-  }
-
-  Future<void> _saveEmployeeDataToPrefs(Map<String, dynamic> employee, String accessToken, String instanceUrl) async {
-    _logger.i('Saving employee data to SharedPreferences');
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final employeeId = employee['Id']?.toString() ?? '';
-      final firstName = employee['First_Name__c']?.toString() ?? '';
-      final lastName = employee['Last_Name__c']?.toString() ?? '';
-      final email = employee['Email__c']?.toString() ?? '';
-
-      // Save all employee and session data
-      await prefs.setString('employee_id', employeeId);
-      await prefs.setString('current_employee_id', employeeId); // Also save as current_employee_id
-      await prefs.setString('first_name', firstName);
-      await prefs.setString('last_name', lastName);
-      await prefs.setString('user_email', email);
-      await prefs.setString('access_token', accessToken);
-      await prefs.setString('instance_url', instanceUrl);
-
-      _logger.i('Employee data saved: employeeId=$employeeId, firstName=$firstName, lastName=$lastName, email=$email');
-    } catch (e, stackTrace) {
-      _logger.e('Error saving employee data: $e', error: e, stackTrace: stackTrace);
     }
   }
 
@@ -235,7 +208,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       return;
     }
 
-    // Start the timeout timer for 100 seconds
     _loginTimeoutTimer = Timer(const Duration(seconds: 100), () {
       if (_isLoading) {
         _logger.w('Login timeout occurred');
@@ -251,7 +223,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     });
 
     try {
-      // Add a small delay for UX
       await Future.delayed(const Duration(milliseconds: 500));
 
       _logger.i('Checking email with Salesforce...');
@@ -261,7 +232,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
       _logger.i('Login validation result: isValid=$isValid, salesforceData=${salesforceData != null}, passwordValid=$passwordIsValid');
 
-      // Cancel the timeout timer if we got a response
       _loginTimeoutTimer?.cancel();
 
       if (!mounted) return;
@@ -279,7 +249,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
         _logger.i('Login successful for employee: $employeeId');
 
-        // Check if we have a valid employee ID
         if (employeeId.isEmpty) {
           _logger.e('Employee ID is empty');
           setState(() {
@@ -289,7 +258,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           return;
         }
 
-        // Save employee data for remember me
         if (_rememberMe) {
           await _saveRememberMeStatus(employeeId, firstName, lastName);
         }
@@ -317,7 +285,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         _showSnackBar(errorMessage, isError: true);
       }
     } catch (e, stackTrace) {
-      // Cancel the timeout timer
       _loginTimeoutTimer?.cancel();
 
       if (!mounted) return;
@@ -372,6 +339,10 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 
+  bool _checkPassword(String password) {
+    return password == "12345"; // Replace with actual logic later
+  }
+
   @override
   void dispose() {
     _logger.i('LoginPage disposing');
@@ -386,7 +357,13 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    final backgroundColor = isDarkMode ? const Color(0xFF121212) : const Color(0xFFF5F7FA);
+    final textColor = isDarkMode ? Colors.white : const Color(0xFF2D3748);
+    final subtitleColor = isDarkMode ? Colors.white70 : Colors.grey[600];
+
     return Scaffold(
+      backgroundColor: backgroundColor,
       appBar: PreferredSize(
         preferredSize: Size.zero,
         child: AppBar(
@@ -394,9 +371,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           elevation: 0,
           systemOverlayStyle: SystemUiOverlayStyle(
             statusBarColor: Colors.transparent,
-            statusBarIconBrightness: Theme.of(context).brightness == Brightness.light
-                ? Brightness.dark
-                : Brightness.light,
+            statusBarIconBrightness: isDarkMode ? Brightness.light : Brightness.dark,
             statusBarBrightness: Theme.of(context).brightness,
           ),
         ),
@@ -411,23 +386,40 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
               return Transform.translate(
                 offset: Offset(0, _slideAnimation.value),
                 child: Padding(
-                  padding: CSpacingStyle.paddingWithAppBarHeight,
+                  padding: const EdgeInsets.all(16.0),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const SizedBox(height: 65),
+                      const SizedBox(height: 120),
                       Center(
                         child: Image.asset(
                           CImages.appLogo,
-                          height: 180,
-                          width: 180,
+                          height: 120,
+                          width: 120,
                         ),
                       ),
-                      const SizedBox(height: 0),
-                      const Text(
-                        'Login',
-                        style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                      const SizedBox(height: 8),
+                      Center(
+                        child: Text(
+                          'Welcome Back!',
+                          style: TextStyle(
+                            color: textColor,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 8),
+                      Center(
+                        child: Text(
+                          'Sign in to continue',
+                          style: TextStyle(
+                            color: subtitleColor,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
                       Form(
                         child: Column(
                           children: [
@@ -436,26 +428,32 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                               focusNode: _emailFocusNode,
                               keyboardType: TextInputType.emailAddress,
                               decoration: InputDecoration(
-                                prefixIcon: const Icon(Icons.email),
+                                prefixIcon: Icon(Icons.email, color: subtitleColor),
                                 hintText: 'Email',
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                hintStyle: TextStyle(color: subtitleColor),
+                                filled: true,
+                                fillColor: isDarkMode ? const Color(0xFF2A2A2A) : Colors.grey[100],
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
                                 enabledBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                   borderSide: BorderSide(
-                                    color: _hasValidationError ? Colors.red : Colors.grey,
-                                    width: _hasValidationError ? 2 : 1,
+                                    color: _hasValidationError ? Colors.red : Colors.transparent,
+                                    width: 2,
                                   ),
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                   borderSide: BorderSide(
-                                    color: _hasValidationError
-                                        ? Colors.red
-                                        : Theme.of(context).primaryColor,
+                                    color: _hasValidationError ? Colors.red : const Color(0xFF667EEA),
                                     width: 2,
                                   ),
                                 ),
+                                contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
                               ),
+                              style: TextStyle(color: textColor),
                             ),
                             const SizedBox(height: 16),
                             TextFormField(
@@ -463,13 +461,11 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                               focusNode: _passwordFocusNode,
                               obscureText: !_isPasswordVisible,
                               decoration: InputDecoration(
-                                prefixIcon: const Icon(Icons.lock),
-                                hintText: 'Password',
+                                prefixIcon: Icon(Icons.lock, color: subtitleColor),
                                 suffixIcon: IconButton(
                                   icon: Icon(
-                                    _isPasswordVisible
-                                        ? Icons.visibility
-                                        : Icons.visibility_off,
+                                    _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                                    color: subtitleColor,
                                   ),
                                   onPressed: () {
                                     setState(() {
@@ -477,26 +473,33 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                     });
                                   },
                                 ),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                hintText: 'Password',
+                                hintStyle: TextStyle(color: subtitleColor),
+                                filled: true,
+                                fillColor: isDarkMode ? const Color(0xFF2A2A2A) : Colors.grey[100],
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
                                 enabledBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                   borderSide: BorderSide(
-                                    color: _hasValidationError ? Colors.red : Colors.grey,
-                                    width: _hasValidationError ? 2 : 1,
+                                    color: _hasValidationError ? Colors.red : Colors.transparent,
+                                    width: 2,
                                   ),
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                   borderSide: BorderSide(
-                                    color: _hasValidationError
-                                        ? Colors.red
-                                        : Theme.of(context).primaryColor,
+                                    color: _hasValidationError ? Colors.red : const Color(0xFF667EEA),
                                     width: 2,
                                   ),
                                 ),
+                                contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
                               ),
+                              style: TextStyle(color: textColor),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 12),
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
@@ -510,8 +513,13 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                           _rememberMe = value ?? false;
                                         });
                                       },
+                                      activeColor: const Color(0xFF667EEA),
+                                      checkColor: Colors.white,
                                     ),
-                                    const Text('Remember Me'),
+                                    Text(
+                                      'Remember Me',
+                                      style: TextStyle(color: textColor, fontSize: 14),
+                                    ),
                                   ],
                                 ),
                                 TextButton(
@@ -533,14 +541,18 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                       );
                                     }
                                   },
-                                  child: const Text(
+                                  child: Text(
                                     'Forget Password?',
-                                    style: TextStyle(fontWeight: FontWeight.bold),
+                                    style: TextStyle(
+                                      color: const Color(0xFF667EEA),
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                    ),
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 14),
+                            const SizedBox(height: 16),
                             SizedBox(
                               width: double.infinity,
                               child: ElevatedButton(
@@ -550,19 +562,18 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                   HapticFeedback.heavyImpact();
                                   _handleLogin();
                                 },
-                                style: ButtonStyle(
-                                  backgroundColor: WidgetStateProperty.resolveWith<Color>((states) {
-                                    if (states.contains(WidgetState.disabled)) {
-                                      return Colors.blue;
-                                    }
-                                    return Colors.blue;
-                                  }),
-                                  foregroundColor: WidgetStateProperty.resolveWith<Color>((states) {
-                                    return Colors.white;
-                                  }),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF667EEA),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  elevation: 0,
+                                  shadowColor: Colors.transparent,
                                 ),
                                 child: _isLoading
-                                    ? const Row(
+                                    ? Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     SizedBox(
@@ -573,11 +584,25 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                         valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                                       ),
                                     ),
-                                    SizedBox(width: 8),
-                                    Text('Logging in...'),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Logging in...',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
+                                    ),
                                   ],
                                 )
-                                    : const Text('Log In'),
+                                    : Text(
+                                  'Log In',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
                               ),
                             ),
                           ],
@@ -593,10 +618,6 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       ),
     );
   }
-}
-
-bool _checkPassword(String password) {
-  return password == "12345"; // Replace with actual logic later
 }
 
 class CImages {
