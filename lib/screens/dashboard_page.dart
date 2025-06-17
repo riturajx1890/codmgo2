@@ -3,12 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:codmgo2/screens/clock_in_out.dart';
 import 'package:codmgo2/screens/attendence_history.dart';
 import 'package:codmgo2/utils/clock_in_out_logic.dart';
-import 'package:codmgo2/utils/bottom_navigation_bar.dart';
 import 'package:codmgo2/utils/recent_activity.dart';
 import 'package:codmgo2/utils/dashboard_logic.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:animations/animations.dart';
 import 'package:codmgo2/utils/dashboard_ui_components.dart';
+import 'package:codmgo2/screens/profile_screen.dart';
+import 'package:codmgo2/services/profile_service.dart';
 
 import 'leave_dashboard.dart'; // Import the UI components file
 
@@ -43,6 +44,13 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   late Animation<double> _clockButtonPulseAnimation;
   int _currentIndex = 0;
   bool _isRefreshing = false;
+  String? accessToken;
+  String? instanceUrl;
+
+  // Add variables to store user data from SharedPreferences
+  String displayFirstName = '';
+  String displayLastName = '';
+  String displayEmployeeId = '';
 
   @override
   void initState() {
@@ -55,6 +63,57 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
 
     _initializeAnimationControllers();
     _initializeDashboard();
+    _loadUserData(); // Load user data from SharedPreferences
+  }
+
+  // Load user data from SharedPreferences
+  Future<void> _loadUserData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // Get data from SharedPreferences first, fallback to widget parameters
+      final firstName = prefs.getString('first_name') ?? widget.firstName;
+      final lastName = prefs.getString('last_name') ?? widget.lastName;
+      final employeeId = prefs.getString('employee_id') ?? widget.employeeId;
+
+      // Get auth data
+      final authData = await ProfileService.getAuthData();
+
+      setState(() {
+        displayFirstName = firstName;
+        displayLastName = lastName;
+        displayEmployeeId = employeeId;
+
+        if (authData != null) {
+          accessToken = authData['access_token'];
+          instanceUrl = authData['instance_url'];
+        }
+      });
+
+      print('Loaded user data: $firstName $lastName ($employeeId)'); // Debug print
+    } catch (e) {
+      print('Error loading user data: $e'); // Debug print
+      // Fallback to widget parameters if SharedPreferences fails
+      setState(() {
+        displayFirstName = widget.firstName;
+        displayLastName = widget.lastName;
+        displayEmployeeId = widget.employeeId;
+      });
+    }
+  }
+
+  Future<void> _loadAuthData() async {
+    try {
+      final authData = await ProfileService.getAuthData();
+      if (authData != null) {
+        setState(() {
+          accessToken = authData['access_token'];
+          instanceUrl = authData['instance_url'];
+        });
+      }
+    } catch (e) {
+      // Handle error silently or log it if needed
+    }
   }
 
   void _initializeAnimationControllers() {
@@ -182,6 +241,9 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     final userEmail = prefs.getString('user_email') ?? 'default@example.com';
     await clockInOutController.initializeEmployeeData(userEmail);
 
+    // Reload user data to ensure it's up to date
+    await _loadUserData();
+
     await Future.delayed(const Duration(milliseconds: 2000));
 
     if (mounted) {
@@ -203,17 +265,12 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
 
     switch (index) {
       case 0:
-        if (_currentIndex != 0) {
-          setState(() {
-            _currentIndex = 0;
-          });
-        }
         break;
       case 1:
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => LeaveDashboardPage(employeeId: widget.employeeId), // make sure this page exists
+            builder: (context) => LeaveDashboardPage(employeeId: displayEmployeeId),
           ),
         ).then((_) {
           setState(() {
@@ -225,7 +282,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => AttendanceHistoryPage(employeeId: widget.employeeId),
+            builder: (context) => AttendanceHistoryPage(employeeId: displayEmployeeId),
           ),
         ).then((_) {
           setState(() {
@@ -234,6 +291,23 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
         });
         break;
       case 3:
+        if (accessToken == null || instanceUrl == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Authentication data not available. Please try again.')),
+          );
+          _loadAuthData();
+          return;
+        }
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ProfilePage(),
+          ),
+        ).then((_) {
+          setState(() {
+            _currentIndex = 0;
+          });
+        });
         break;
     }
   }
@@ -355,6 +429,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     final theme = Theme.of(context);
     final isDarkMode = theme.brightness == Brightness.dark;
     final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final cardColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
 
     return Scaffold(
       backgroundColor: isDarkMode ? const Color(0xFF1A1A1A) : Colors.white,
@@ -371,7 +446,7 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Hello, ${widget.firstName}',
+                    'Hello, ${displayFirstName.isNotEmpty ? displayFirstName : 'User'}',
                     style: TextStyle(
                       fontSize: 24,
                       fontWeight: FontWeight.bold,
@@ -470,10 +545,36 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
         ),
       ),
       extendBody: true, // This allows the body to extend behind the bottom navigation
-      bottomNavigationBar: CustomBottomNavigationBar(
+      bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
+        backgroundColor: cardColor,
+        selectedItemColor: const Color(0xFF667EEA),
+        unselectedItemColor: isDarkMode ? Colors.grey[500] : Colors.grey[400],
         currentIndex: _currentIndex,
+        elevation: 10,
         onTap: _onBottomNavTap,
-        isDarkMode: isDarkMode,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home),
+            activeIcon: Icon(Icons.home_filled),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.event_available_outlined),
+            activeIcon: Icon(Icons.event_available),
+            label: 'Leave',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.work_outline),
+            activeIcon: Icon(Icons.work),
+            label: 'Attendance',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
       ),
     );
   }

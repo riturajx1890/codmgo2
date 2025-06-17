@@ -4,36 +4,8 @@ import 'package:logger/logger.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ProfileService {
-  static const String _apiVersion = 'v60.0';
+  static const String _apiVersion = 'v52.0';
   static final Logger _logger = Logger();
-
-  /// Validates instanceUrl format - more flexible validation
-  static bool _isValidInstanceUrl(String? instanceUrl) {
-    if (instanceUrl == null || instanceUrl.isEmpty) {
-      return false;
-    }
-
-    // Remove trailing slash if present for validation
-    String cleanUrl = instanceUrl.endsWith('/') ? instanceUrl.substring(0, instanceUrl.length - 1) : instanceUrl;
-
-    // Should start with https:// and contain domain
-    if (!cleanUrl.startsWith('https://')) {
-      return false;
-    }
-
-    // Check for valid domain pattern
-    try {
-      Uri.parse(cleanUrl);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  /// Normalizes instanceUrl by removing trailing slash
-  static String _normalizeInstanceUrl(String instanceUrl) {
-    return instanceUrl.endsWith('/') ? instanceUrl.substring(0, instanceUrl.length - 1) : instanceUrl;
-  }
 
   /// Gets access token and instance URL from SharedPreferences
   static Future<Map<String, String>?> getAuthData() async {
@@ -42,48 +14,46 @@ class ProfileService {
       final accessToken = prefs.getString('access_token');
       final instanceUrl = prefs.getString('instance_url');
 
-      if (accessToken == null || accessToken.isEmpty) {
-        _logger.e('Access token not found in SharedPreferences');
+      if (accessToken == null || instanceUrl == null) {
+        _logger.e('Auth data missing from SharedPreferences');
         return null;
       }
 
-      if (instanceUrl == null || instanceUrl.isEmpty) {
-        _logger.e('Instance URL not found in SharedPreferences');
-        return null;
-      }
+      final normalizedUrl = instanceUrl.endsWith('/')
+          ? instanceUrl.substring(0, instanceUrl.length - 1)
+          : instanceUrl;
 
       return {
         'access_token': accessToken,
-        'instance_url': _normalizeInstanceUrl(instanceUrl),
+        'instance_url': normalizedUrl,
       };
-    } catch (e, stackTrace) {
-      _logger.e('Error getting auth data from SharedPreferences: $e', error: e, stackTrace: stackTrace);
+    } catch (e) {
+      _logger.e('Error getting auth data: $e');
       return null;
     }
   }
 
-  /// Fetches employee profile data by Employee ID.
-  /// This method will automatically get the access token from SharedPreferences
+  /// Fetches employee profile data by Employee ID
   static Future<Map<String, dynamic>?> getEmployeeProfile(String employeeId) async {
     if (employeeId.isEmpty) {
-      _logger.e('Employee ID is empty');
+      _logger.e('Employee ID is empty or null');
       return null;
     }
 
-    // Get auth data from SharedPreferences
     final authData = await getAuthData();
     if (authData == null) {
-      _logger.e('Could not retrieve authentication data');
+      _logger.e('Authentication data not available');
       return null;
     }
 
-    final accessToken = authData['access_token']!;
-    final instanceUrl = authData['instance_url']!;
-
-    return await _getEmployeeProfileWithAuth(accessToken, instanceUrl, employeeId);
+    return await _getEmployeeProfileWithAuth(
+      authData['access_token']!,
+      authData['instance_url']!,
+      employeeId,
+    );
   }
 
-  /// Fetches employee profile data by Employee ID with provided auth data.
+  /// Fetches employee profile with provided auth data
   static Future<Map<String, dynamic>?> getEmployeeProfileWithAuth(
       String accessToken,
       String instanceUrl,
@@ -92,133 +62,86 @@ class ProfileService {
     return await _getEmployeeProfileWithAuth(accessToken, instanceUrl, employeeId);
   }
 
-  /// Internal method to fetch employee profile with auth data
+  /// Internal method to fetch employee profile
   static Future<Map<String, dynamic>?> _getEmployeeProfileWithAuth(
       String accessToken,
       String instanceUrl,
       String employeeId,
       ) async {
-
-    // Validate inputs
-    if (accessToken.isEmpty) {
-      _logger.e('Access token is empty');
-      return null;
-    }
-
-    final normalizedUrl = _normalizeInstanceUrl(instanceUrl);
-    if (!_isValidInstanceUrl(normalizedUrl)) {
-      _logger.e('Invalid instance URL: $instanceUrl. Should be like: https://your-domain.salesforce.com');
-      return null;
-    }
-
     if (employeeId.isEmpty) {
       _logger.e('Employee ID is empty');
       return null;
     }
 
-    _logger.i('Fetching employee profile for ID: $employeeId');
-    _logger.i('Using instance URL: $normalizedUrl');
+    final query = "SELECT Id, Name, First_Name__c, Last_Name__c, Employee_Code__c, Performance_Flag__c, Phone__c, Email__c, Bank_Name__c, IFSC_Code__c, Bank_Account_Number__c, Aadhar_Number__c, PAN_Card__c, Date_of_Birth__c, Work_Location__c, Joining_Date__c, Reporting_Manager_Formula__c, Annual_Review_Date__c, Department__c FROM Employee__c WHERE Id = '$employeeId'";
 
-    // Escape single quotes in employeeId to prevent SOQL injection
-    final escapedEmployeeId = employeeId.replaceAll("'", "\\'");
-
-    final query = '''
-      SELECT Id, First_Name__c, Last_Name__c, Employee_Code__c, Performance_Flag__c, 
-             Phone__c, Email__c, Bank_Name__c, IFSC_Code__c, Bank_Account_Number__c, 
-             Aadhar_Number__c, PAN_Card__c, Date_of_Birth__c, Work_Location__c, 
-             Joining_Date__c, Reporting_Manager__c, Annual_Review_Date__c, Department__c 
-      FROM Employee__c 
-      WHERE Id = '$escapedEmployeeId'
-    ''';
     final encodedQuery = Uri.encodeComponent(query);
-
-    // Construct the full URL properly
-    final urlString = '$normalizedUrl/services/data/$_apiVersion/query/?q=$encodedQuery';
+    final url = '$instanceUrl/services/data/$_apiVersion/query/?q=$encodedQuery';
 
     try {
-      final url = Uri.parse(urlString);
-
-      _logger.i('Profile query URL: $url');
-      _logger.d('Query: $query');
+      _logger.i('Making API request for employee ID: $employeeId');
 
       final response = await http.get(
-        url,
+        Uri.parse(url),
         headers: {
           'Authorization': 'Bearer $accessToken',
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
         },
-      ).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw TimeoutException('Request timeout after 30 seconds');
-        },
-      );
+      ).timeout(const Duration(seconds: 30));
 
-      _logger.i('Profile response status: ${response.statusCode}');
+      _logger.i('Response received - Status: ${response.statusCode}');
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final records = data['records'];
 
-        if (records != null && records.isNotEmpty) {
-          final profile = records[0];
-          _logger.i('Employee profile found for ID: $employeeId');
-          return profile;
+        if (data is Map && data.containsKey('records')) {
+          final records = data['records'] as List?;
+
+          if (records != null && records.isNotEmpty) {
+            final profileRecord = records.first as Map<String, dynamic>;
+            _logger.i('Employee profile found for ID: $employeeId');
+            return profileRecord;
+          } else {
+            _logger.w('No employee found with ID: $employeeId');
+            return null;
+          }
         } else {
-          _logger.w('No employee profile found for ID: $employeeId');
+          _logger.e('Response does not contain records field');
           return null;
         }
       } else if (response.statusCode == 401) {
-        _logger.e('Unauthorized: Invalid or expired access token');
+        _logger.e('Unauthorized - token may be expired');
         return null;
       } else {
-        _logger.e('Failed to fetch employee profile. Status: ${response.statusCode}');
-        _logger.e('Response body: ${response.body}');
+        _logger.e('Request failed with status: ${response.statusCode}');
         return null;
       }
-    } on FormatException catch (e) {
-      _logger.e('Invalid URL format: $urlString');
-      _logger.e('Format error: $e');
-      return null;
-    } on TimeoutException catch (e) {
-      _logger.e('Request timeout: $e');
-      return null;
-    } catch (e, stackTrace) {
-      _logger.e('Error fetching employee profile: $e', error: e, stackTrace: stackTrace);
+    } catch (e) {
+      _logger.e('Exception occurred during API call: $e');
       return null;
     }
   }
 
-  /// Updates employee profile data.
+  /// Updates employee profile data
   static Future<bool> updateEmployeeProfile(
       String employeeId,
       Map<String, dynamic> profileData,
       ) async {
-
-    if (employeeId.isEmpty) {
-      _logger.e('Employee ID is empty');
-      return false;
-    }
-
-    if (profileData.isEmpty) {
-      _logger.e('Profile data is empty');
-      return false;
-    }
-
-    // Get auth data from SharedPreferences
     final authData = await getAuthData();
     if (authData == null) {
-      _logger.e('Could not retrieve authentication data');
       return false;
     }
 
-    final accessToken = authData['access_token']!;
-    final instanceUrl = authData['instance_url']!;
-
-    return await _updateEmployeeProfileWithAuth(accessToken, instanceUrl, employeeId, profileData);
+    return await _updateEmployeeProfileWithAuth(
+      authData['access_token']!,
+      authData['instance_url']!,
+      employeeId,
+      profileData,
+    );
   }
 
-  /// Updates employee profile data with provided auth data.
+  /// Updates employee profile with provided auth data
   static Future<bool> updateEmployeeProfileWithAuth(
       String accessToken,
       String instanceUrl,
@@ -228,144 +151,56 @@ class ProfileService {
     return await _updateEmployeeProfileWithAuth(accessToken, instanceUrl, employeeId, profileData);
   }
 
-  /// Internal method to update employee profile with auth data
+  /// Internal method to update employee profile
   static Future<bool> _updateEmployeeProfileWithAuth(
       String accessToken,
       String instanceUrl,
       String employeeId,
       Map<String, dynamic> profileData,
       ) async {
-
-    // Validate inputs
-    if (accessToken.isEmpty) {
-      _logger.e('Access token is empty');
+    if (employeeId.isEmpty || profileData.isEmpty) {
       return false;
     }
 
-    final normalizedUrl = _normalizeInstanceUrl(instanceUrl);
-    if (!_isValidInstanceUrl(normalizedUrl)) {
-      _logger.e('Invalid instance URL: $instanceUrl');
-      return false;
-    }
-
-    if (employeeId.isEmpty) {
-      _logger.e('Employee ID is empty');
-      return false;
-    }
-
-    if (profileData.isEmpty) {
-      _logger.e('Profile data is empty');
-      return false;
-    }
-
-    _logger.i('Updating employee profile for ID: $employeeId');
-
-    final urlString = '$normalizedUrl/services/data/$_apiVersion/sobjects/Employee__c/$employeeId';
-    final body = json.encode(profileData);
+    final url = '$instanceUrl/services/data/$_apiVersion/sobjects/Employee__c/$employeeId';
 
     try {
-      final url = Uri.parse(urlString);
-
-      _logger.i('Profile update request URL: $url');
-      _logger.d('Request body: $body');
-
       final response = await http.patch(
-        url,
+        Uri.parse(url),
         headers: {
           'Authorization': 'Bearer $accessToken',
           'Content-Type': 'application/json',
         },
-        body: body,
-      ).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw TimeoutException('Request timeout after 30 seconds');
-        },
-      );
-
-      _logger.i('Profile update response status: ${response.statusCode}');
-      _logger.d('Profile update response body: ${response.body}');
+        body: json.encode(profileData),
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 204) {
-        _logger.i('Profile update successful for employee ID: $employeeId');
+        _logger.i('Profile update successful');
         return true;
-      } else if (response.statusCode == 401) {
-        _logger.e('Unauthorized: Invalid or expired access token');
-        return false;
       } else {
-        _logger.e('Failed to update profile. Status: ${response.statusCode}');
-        _logger.e('Response body: ${response.body}');
+        _logger.e('Update failed: ${response.statusCode}');
         return false;
       }
-    } on FormatException catch (e) {
-      _logger.e('Invalid URL format: $urlString');
-      _logger.e('Format error: $e');
-      return false;
-    } on TimeoutException catch (e) {
-      _logger.e('Request timeout: $e');
-      return false;
-    } catch (e, stackTrace) {
-      _logger.e('Error updating employee profile: $e', error: e, stackTrace: stackTrace);
+    } catch (e) {
+      _logger.e('Error updating employee profile: $e');
       return false;
     }
   }
 
-  /// Updates specific profile field.
-  static Future<bool> updateProfileField(
-      String employeeId,
-      String fieldName,
-      dynamic fieldValue,
-      ) async {
-
-    if (fieldName.isEmpty) {
-      _logger.e('Field name is empty');
-      return false;
-    }
-
-    _logger.i('Updating profile field $fieldName for employee ID: $employeeId');
-
-    final profileData = {fieldName: fieldValue};
-
-    return await updateEmployeeProfile(employeeId, profileData);
-  }
-
-  /// Updates specific profile field with provided auth data.
-  static Future<bool> updateProfileFieldWithAuth(
-      String accessToken,
-      String instanceUrl,
-      String employeeId,
-      String fieldName,
-      dynamic fieldValue,
-      ) async {
-
-    if (fieldName.isEmpty) {
-      _logger.e('Field name is empty');
-      return false;
-    }
-
-    _logger.i('Updating profile field $fieldName for employee ID: $employeeId');
-
-    final profileData = {fieldName: fieldValue};
-
-    return await _updateEmployeeProfileWithAuth(accessToken, instanceUrl, employeeId, profileData);
-  }
-
-  /// Gets all employees (for admin/manager use).
+  /// Gets all employees
   static Future<List<Map<String, dynamic>>?> getAllEmployees() async {
-    // Get auth data from SharedPreferences
     final authData = await getAuthData();
     if (authData == null) {
-      _logger.e('Could not retrieve authentication data');
       return null;
     }
 
-    final accessToken = authData['access_token']!;
-    final instanceUrl = authData['instance_url']!;
-
-    return await _getAllEmployeesWithAuth(accessToken, instanceUrl);
+    return await _getAllEmployeesWithAuth(
+      authData['access_token']!,
+      authData['instance_url']!,
+    );
   }
 
-  /// Gets all employees with provided auth data.
+  /// Gets all employees with provided auth data
   static Future<List<Map<String, dynamic>>?> getAllEmployeesWithAuth(
       String accessToken,
       String instanceUrl,
@@ -373,115 +208,51 @@ class ProfileService {
     return await _getAllEmployeesWithAuth(accessToken, instanceUrl);
   }
 
-  /// Internal method to get all employees with auth data
+  /// Internal method to get all employees
   static Future<List<Map<String, dynamic>>?> _getAllEmployeesWithAuth(
       String accessToken,
       String instanceUrl,
       ) async {
-
-    // Validate inputs
-    if (accessToken.isEmpty) {
-      _logger.e('Access token is empty');
-      return null;
-    }
-
-    final normalizedUrl = _normalizeInstanceUrl(instanceUrl);
-    if (!_isValidInstanceUrl(normalizedUrl)) {
-      _logger.e('Invalid instance URL: $instanceUrl');
-      return null;
-    }
-
-    _logger.i('Fetching all employees');
-
-    final query = '''
-      SELECT Id, First_Name__c, Last_Name__c, Employee_Code__c, Performance_Flag__c, 
-             Phone__c, Email__c, Bank_Name__c, IFSC_Code__c, Bank_Account_Number__c, 
-             Aadhar_Number__c, PAN_Card__c, Date_of_Birth__c, Work_Location__c, 
-             Joining_Date__c, Reporting_Manager__c, Annual_Review_Date__c, Department__c 
-      FROM Employee__c 
-      ORDER BY Last_Name__c, First_Name__c
-    ''';
+    final query = "SELECT Id, Name, First_Name__c, Last_Name__c, Email__c FROM Employee__c";
     final encodedQuery = Uri.encodeComponent(query);
-
-    final urlString = '$normalizedUrl/services/data/$_apiVersion/query/?q=$encodedQuery';
+    final url = '$instanceUrl/services/data/$_apiVersion/query/?q=$encodedQuery';
 
     try {
-      final url = Uri.parse(urlString);
-
-      _logger.i('All employees query URL: $url');
-      _logger.d('Query: $query');
-
       final response = await http.get(
-        url,
+        Uri.parse(url),
         headers: {
           'Authorization': 'Bearer $accessToken',
           'Content-Type': 'application/json',
         },
-      ).timeout(
-        const Duration(seconds: 45),
-        onTimeout: () {
-          throw TimeoutException('Request timeout after 45 seconds');
-        },
-      );
-
-      _logger.i('All employees response status: ${response.statusCode}');
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final records = data['records'];
-
-        if (records != null && records.isNotEmpty) {
-          _logger.i('Fetched ${records.length} employee records');
-          return List<Map<String, dynamic>>.from(records);
-        } else {
-          _logger.w('No employee records found');
-          return [];
-        }
-      } else if (response.statusCode == 401) {
-        _logger.e('Unauthorized: Invalid or expired access token');
-        return null;
+        final records = data['records'] as List;
+        return records.cast<Map<String, dynamic>>();
       } else {
-        _logger.e('Failed to fetch all employees. Status: ${response.statusCode}');
-        _logger.e('Response body: ${response.body}');
         return null;
       }
-    } on FormatException catch (e) {
-      _logger.e('Invalid URL format: $urlString');
-      _logger.e('Format error: $e');
-      return null;
-    } on TimeoutException catch (e) {
-      _logger.e('Request timeout: $e');
-      return null;
-    } catch (e, stackTrace) {
-      _logger.e('Error fetching all employees: $e', error: e, stackTrace: stackTrace);
+    } catch (e) {
       return null;
     }
   }
 
-  /// Creates a new employee record.
-  static Future<String?> createEmployee(
-      Map<String, dynamic> employeeData,
-      ) async {
-
-    if (employeeData.isEmpty) {
-      _logger.e('Employee data is empty');
-      return null;
-    }
-
-    // Get auth data from SharedPreferences
+  /// Creates a new employee record
+  static Future<String?> createEmployee(Map<String, dynamic> employeeData) async {
     final authData = await getAuthData();
     if (authData == null) {
-      _logger.e('Could not retrieve authentication data');
       return null;
     }
 
-    final accessToken = authData['access_token']!;
-    final instanceUrl = authData['instance_url']!;
-
-    return await _createEmployeeWithAuth(accessToken, instanceUrl, employeeData);
+    return await _createEmployeeWithAuth(
+      authData['access_token']!,
+      authData['instance_url']!,
+      employeeData,
+    );
   }
 
-  /// Creates a new employee record with provided auth data.
+  /// Creates employee with provided auth data
   static Future<String?> createEmployeeWithAuth(
       String accessToken,
       String instanceUrl,
@@ -490,108 +261,51 @@ class ProfileService {
     return await _createEmployeeWithAuth(accessToken, instanceUrl, employeeData);
   }
 
-  /// Internal method to create employee with auth data
+  /// Internal method to create employee
   static Future<String?> _createEmployeeWithAuth(
       String accessToken,
       String instanceUrl,
       Map<String, dynamic> employeeData,
       ) async {
-
-    // Validate inputs
-    if (accessToken.isEmpty) {
-      _logger.e('Access token is empty');
-      return null;
-    }
-
-    final normalizedUrl = _normalizeInstanceUrl(instanceUrl);
-    if (!_isValidInstanceUrl(normalizedUrl)) {
-      _logger.e('Invalid instance URL: $instanceUrl');
-      return null;
-    }
-
-    if (employeeData.isEmpty) {
-      _logger.e('Employee data is empty');
-      return null;
-    }
-
-    _logger.i('Creating new employee record');
-
-    final urlString = '$normalizedUrl/services/data/$_apiVersion/sobjects/Employee__c';
-    final body = json.encode(employeeData);
+    final url = '$instanceUrl/services/data/$_apiVersion/sobjects/Employee__c';
 
     try {
-      final url = Uri.parse(urlString);
-
-      _logger.i('Create employee request URL: $url');
-      _logger.d('Request body: $body');
-
       final response = await http.post(
-        url,
+        Uri.parse(url),
         headers: {
           'Authorization': 'Bearer $accessToken',
           'Content-Type': 'application/json',
         },
-        body: body,
-      ).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw TimeoutException('Request timeout after 30 seconds');
-        },
-      );
-
-      _logger.i('Create employee response status: ${response.statusCode}');
-      _logger.d('Create employee response body: ${response.body}');
+        body: json.encode(employeeData),
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 201) {
         final data = json.decode(response.body);
-        final recordId = data['id'];
-        _logger.i('Employee creation successful. Record ID: $recordId');
-        return recordId;
-      } else if (response.statusCode == 401) {
-        _logger.e('Unauthorized: Invalid or expired access token');
-        return null;
+        final newId = data['id'];
+        return newId;
       } else {
-        _logger.e('Failed to create employee. Status: ${response.statusCode}');
-        _logger.e('Response body: ${response.body}');
         return null;
       }
-    } on FormatException catch (e) {
-      _logger.e('Invalid URL format: $urlString');
-      _logger.e('Format error: $e');
-      return null;
-    } on TimeoutException catch (e) {
-      _logger.e('Request timeout: $e');
-      return null;
-    } catch (e, stackTrace) {
-      _logger.e('Error creating employee: $e', error: e, stackTrace: stackTrace);
+    } catch (e) {
       return null;
     }
   }
 
-  /// Searches employees by name, email, or employee code.
-  static Future<List<Map<String, dynamic>>?> searchEmployees(
-      String searchTerm,
-      ) async {
-
-    if (searchTerm.isEmpty) {
-      _logger.e('Search term is empty');
-      return null;
-    }
-
-    // Get auth data from SharedPreferences
+  /// Searches employees by name, email, or employee code
+  static Future<List<Map<String, dynamic>>?> searchEmployees(String searchTerm) async {
     final authData = await getAuthData();
     if (authData == null) {
-      _logger.e('Could not retrieve authentication data');
       return null;
     }
 
-    final accessToken = authData['access_token']!;
-    final instanceUrl = authData['instance_url']!;
-
-    return await _searchEmployeesWithAuth(accessToken, instanceUrl, searchTerm);
+    return await _searchEmployeesWithAuth(
+      authData['access_token']!,
+      authData['instance_url']!,
+      searchTerm,
+    );
   }
 
-  /// Searches employees with provided auth data.
+  /// Searches employees with provided auth data
   static Future<List<Map<String, dynamic>>?> searchEmployeesWithAuth(
       String accessToken,
       String instanceUrl,
@@ -600,128 +314,58 @@ class ProfileService {
     return await _searchEmployeesWithAuth(accessToken, instanceUrl, searchTerm);
   }
 
-  /// Internal method to search employees with auth data
+  /// Internal method to search employees
   static Future<List<Map<String, dynamic>>?> _searchEmployeesWithAuth(
       String accessToken,
       String instanceUrl,
       String searchTerm,
       ) async {
-
-    // Validate inputs
-    if (accessToken.isEmpty) {
-      _logger.e('Access token is empty');
-      return null;
-    }
-
-    final normalizedUrl = _normalizeInstanceUrl(instanceUrl);
-    if (!_isValidInstanceUrl(normalizedUrl)) {
-      _logger.e('Invalid instance URL: $instanceUrl');
-      return null;
-    }
-
     if (searchTerm.isEmpty) {
-      _logger.e('Search term is empty');
       return null;
     }
 
-    _logger.i('Searching employees with term: $searchTerm');
-
-    // Escape single quotes in search term to prevent SOQL injection
     final escapedSearchTerm = searchTerm.replaceAll("'", "\\'");
+    final query = "SELECT Id, Name, First_Name__c, Last_Name__c, Employee_Code__c, Email__c, Department__c FROM Employee__c WHERE First_Name__c LIKE '%$escapedSearchTerm%' OR Last_Name__c LIKE '%$escapedSearchTerm%' OR Email__c LIKE '%$escapedSearchTerm%' OR Employee_Code__c LIKE '%$escapedSearchTerm%' ORDER BY Last_Name__c, First_Name__c";
 
-    final query = '''
-      SELECT Id, First_Name__c, Last_Name__c, Employee_Code__c, Performance_Flag__c, 
-             Phone__c, Email__c, Bank_Name__c, IFSC_Code__c, Bank_Account_Number__c, 
-             Aadhar_Number__c, PAN_Card__c, Date_of_Birth__c, Work_Location__c, 
-             Joining_Date__c, Reporting_Manager__c, Annual_Review_Date__c, Department__c 
-      FROM Employee__c 
-      WHERE First_Name__c LIKE '%$escapedSearchTerm%' 
-         OR Last_Name__c LIKE '%$escapedSearchTerm%' 
-         OR Email__c LIKE '%$escapedSearchTerm%' 
-         OR Employee_Code__c LIKE '%$escapedSearchTerm%'
-      ORDER BY Last_Name__c, First_Name__c
-    ''';
     final encodedQuery = Uri.encodeComponent(query);
-
-    final urlString = '$normalizedUrl/services/data/$_apiVersion/query/?q=$encodedQuery';
+    final url = '$instanceUrl/services/data/$_apiVersion/query/?q=$encodedQuery';
 
     try {
-      final url = Uri.parse(urlString);
-
-      _logger.i('Search employees query URL: $url');
-      _logger.d('Query: $query');
-
       final response = await http.get(
-        url,
+        Uri.parse(url),
         headers: {
           'Authorization': 'Bearer $accessToken',
           'Content-Type': 'application/json',
         },
-      ).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw TimeoutException('Request timeout after 30 seconds');
-        },
-      );
-
-      _logger.i('Search employees response status: ${response.statusCode}');
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final records = data['records'];
-
-        if (records != null && records.isNotEmpty) {
-          _logger.i('Found ${records.length} employees matching search term: $searchTerm');
-          return List<Map<String, dynamic>>.from(records);
-        } else {
-          _logger.w('No employees found matching search term: $searchTerm');
-          return [];
-        }
-      } else if (response.statusCode == 401) {
-        _logger.e('Unauthorized: Invalid or expired access token');
-        return null;
+        final records = data['records'] as List;
+        return records.cast<Map<String, dynamic>>();
       } else {
-        _logger.e('Failed to search employees. Status: ${response.statusCode}');
-        _logger.e('Response body: ${response.body}');
         return null;
       }
-    } on FormatException catch (e) {
-      _logger.e('Invalid URL format: $urlString');
-      _logger.e('Format error: $e');
-      return null;
-    } on TimeoutException catch (e) {
-      _logger.e('Request timeout: $e');
-      return null;
-    } catch (e, stackTrace) {
-      _logger.e('Error searching employees: $e', error: e, stackTrace: stackTrace);
+    } catch (e) {
       return null;
     }
   }
 
-  /// Gets employees by department.
-  static Future<List<Map<String, dynamic>>?> getEmployeesByDepartment(
-      String department,
-      ) async {
-
-    if (department.isEmpty) {
-      _logger.e('Department is empty');
-      return null;
-    }
-
-    // Get auth data from SharedPreferences
+  /// Gets employees by department
+  static Future<List<Map<String, dynamic>>?> getEmployeesByDepartment(String department) async {
     final authData = await getAuthData();
     if (authData == null) {
-      _logger.e('Could not retrieve authentication data');
       return null;
     }
 
-    final accessToken = authData['access_token']!;
-    final instanceUrl = authData['instance_url']!;
-
-    return await _getEmployeesByDepartmentWithAuth(accessToken, instanceUrl, department);
+    return await _getEmployeesByDepartmentWithAuth(
+      authData['access_token']!,
+      authData['instance_url']!,
+      department,
+    );
   }
 
-  /// Gets employees by department with provided auth data.
+  /// Gets employees by department with provided auth data
   static Future<List<Map<String, dynamic>>?> getEmployeesByDepartmentWithAuth(
       String accessToken,
       String instanceUrl,
@@ -730,106 +374,104 @@ class ProfileService {
     return await _getEmployeesByDepartmentWithAuth(accessToken, instanceUrl, department);
   }
 
-  /// Internal method to get employees by department with auth data
+  /// Internal method to get employees by department
   static Future<List<Map<String, dynamic>>?> _getEmployeesByDepartmentWithAuth(
       String accessToken,
       String instanceUrl,
       String department,
       ) async {
-
-    // Validate inputs
-    if (accessToken.isEmpty) {
-      _logger.e('Access token is empty');
-      return null;
-    }
-
-    final normalizedUrl = _normalizeInstanceUrl(instanceUrl);
-    if (!_isValidInstanceUrl(normalizedUrl)) {
-      _logger.e('Invalid instance URL: $instanceUrl');
-      return null;
-    }
-
     if (department.isEmpty) {
-      _logger.e('Department is empty');
       return null;
     }
 
-    _logger.i('Fetching employees for department: $department');
-
-    // Escape single quotes in department name to prevent SOQL injection
     final escapedDepartment = department.replaceAll("'", "\\'");
+    final query = "SELECT Id, Name, First_Name__c, Last_Name__c, Employee_Code__c, Email__c, Department__c FROM Employee__c WHERE Department__c = '$escapedDepartment' ORDER BY Last_Name__c, First_Name__c";
 
-    final query = '''
-      SELECT Id, First_Name__c, Last_Name__c, Employee_Code__c, Performance_Flag__c, 
-             Phone__c, Email__c, Bank_Name__c, IFSC_Code__c, Bank_Account_Number__c, 
-             Aadhar_Number__c, PAN_Card__c, Date_of_Birth__c, Work_Location__c, 
-             Joining_Date__c, Reporting_Manager__c, Annual_Review_Date__c, Department__c 
-      FROM Employee__c 
-      WHERE Department__c = '$escapedDepartment'
-      ORDER BY Last_Name__c, First_Name__c
-    ''';
     final encodedQuery = Uri.encodeComponent(query);
-
-    final urlString = '$normalizedUrl/services/data/$_apiVersion/query/?q=$encodedQuery';
+    final url = '$instanceUrl/services/data/$_apiVersion/query/?q=$encodedQuery';
 
     try {
-      final url = Uri.parse(urlString);
-
-      _logger.i('Department employees query URL: $url');
-      _logger.d('Query: $query');
-
       final response = await http.get(
-        url,
+        Uri.parse(url),
         headers: {
           'Authorization': 'Bearer $accessToken',
           'Content-Type': 'application/json',
         },
-      ).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw TimeoutException('Request timeout after 30 seconds');
-        },
-      );
-
-      _logger.i('Department employees response status: ${response.statusCode}');
+      ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final records = data['records'];
-
-        if (records != null && records.isNotEmpty) {
-          _logger.i('Found ${records.length} employees in department: $department');
-          return List<Map<String, dynamic>>.from(records);
-        } else {
-          _logger.w('No employees found in department: $department');
-          return [];
-        }
-      } else if (response.statusCode == 401) {
-        _logger.e('Unauthorized: Invalid or expired access token');
-        return null;
+        final records = data['records'] as List;
+        return records.cast<Map<String, dynamic>>();
       } else {
-        _logger.e('Failed to fetch department employees. Status: ${response.statusCode}');
-        _logger.e('Response body: ${response.body}');
         return null;
       }
-    } on FormatException catch (e) {
-      _logger.e('Invalid URL format: $urlString');
-      _logger.e('Format error: $e');
+    } catch (e) {
       return null;
-    } on TimeoutException catch (e) {
-      _logger.e('Request timeout: $e');
+    }
+  }
+
+  /// Validates employee exists
+  static Future<bool> validateEmployeeExists(String employeeId) async {
+    final profile = await getEmployeeProfile(employeeId);
+    return profile != null;
+  }
+
+  /// Gets employee basic info (for quick lookups)
+  static Future<Map<String, dynamic>?> getEmployeeBasicInfo(String employeeId) async {
+    final authData = await getAuthData();
+    if (authData == null) {
       return null;
-    } catch (e, stackTrace) {
-      _logger.e('Error fetching department employees: $e', error: e, stackTrace: stackTrace);
+    }
+
+    return await getEmployeeBasicInfoWithAuth(
+      authData['access_token']!,
+      authData['instance_url']!,
+      employeeId,
+    );
+  }
+
+  /// Gets employee basic info with provided auth data
+  static Future<Map<String, dynamic>?> getEmployeeBasicInfoWithAuth(
+      String accessToken,
+      String instanceUrl,
+      String employeeId,
+      ) async {
+    final query = "SELECT Id, Name, First_Name__c, Last_Name__c, Employee_Code__c FROM Employee__c WHERE Id = '$employeeId'";
+    final encodedQuery = Uri.encodeComponent(query);
+    final url = '$instanceUrl/services/data/$_apiVersion/query/?q=$encodedQuery';
+
+    try {
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          'Authorization': 'Bearer $accessToken',
+          'Content-Type': 'application/json',
+        },
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final records = data['records'] as List;
+
+        if (records.isNotEmpty) {
+          return records.first;
+        }
+      }
+
+      return null;
+    } catch (e) {
       return null;
     }
   }
 }
 
-// Add TimeoutException import if not already present
+/// Custom TimeoutException class
 class TimeoutException implements Exception {
   final String message;
-  TimeoutException(this.message);
+  final Duration? duration;
+
+  TimeoutException(this.message, [this.duration]);
 
   @override
   String toString() => 'TimeoutException: $message';

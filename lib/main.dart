@@ -6,7 +6,10 @@ import 'package:flutter_displaymode/flutter_displaymode.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:logger/logger.dart'; // For logging
+import 'package:provider/provider.dart'; // Add provider import
 import 'package:codmgo2/utils/location_logic.dart'; // Import LocationLogic
+import 'package:codmgo2/utils/profile_logic.dart'; // Import ProfileLogic
+import 'package:codmgo2/screens/profile_screen.dart'; // Import ProfilePage
 import 'theme/themes.dart';
 import 'screens/login_page.dart';
 import 'screens/dashboard_page.dart';
@@ -128,27 +131,64 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'CodmGo',
-      debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.system,
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      initialRoute: '/login',
-      routes: {
-        '/login': (context) => const LoginPage(),
-        '/dashboard': (context) => const DashboardPage(firstName: '', lastName: '', employeeId: ''),
-      },
-      navigatorObservers: [RouteObserver<PageRoute>()],
-      builder: (context, child) {
-        return MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            textScaler: const TextScaler.linear(1.0),
-          ),
-          child: child!,
-        );
-      },
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => ProfileLogic()),
+        // Add other providers here if needed
+      ],
+      child: MaterialApp(
+        title: 'CodmGo',
+        debugShowCheckedModeBanner: false,
+        themeMode: ThemeMode.system,
+        theme: AppTheme.lightTheme,
+        darkTheme: AppTheme.darkTheme,
+        initialRoute: '/login',
+        routes: {
+          '/login': (context) => const LoginPage(),
+          '/dashboard': (context) => const DashboardPage(firstName: '', lastName: '', employeeId: ''),
+          '/profile': (context) => const ProfilePage(),
+        },
+        navigatorObservers: [RouteObserver<PageRoute>()],
+        builder: (context, child) {
+          return MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              textScaler: const TextScaler.linear(1.0),
+            ),
+            child: child!,
+          );
+        },
+      ),
     );
+  }
+}
+
+// Navigation Helper class for ProfilePage navigation
+class NavigationHelper {
+  static void navigateToProfile(BuildContext context, {String? employeeId}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ProfilePage(employeeId: employeeId),
+      ),
+    );
+  }
+
+  static void navigateToProfileWithUserEmail(BuildContext context, String userEmail) async {
+    // Initialize employee data using email
+    final profileLogic = context.read<ProfileLogic>();
+    await profileLogic.initializeEmployeeData(userEmail);
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ProfilePage(),
+      ),
+    );
+  }
+
+  // Additional helper method to navigate to profile using named route
+  static void navigateToProfileNamed(BuildContext context) {
+    Navigator.pushNamed(context, '/profile');
   }
 }
 
