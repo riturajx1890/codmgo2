@@ -1,17 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:codmgo2/screens/clock_in_out.dart';
 import 'package:codmgo2/screens/attendence_history.dart';
-import 'package:codmgo2/utils/clock_in_out_logic.dart';
-import 'package:codmgo2/utils/recent_activity.dart';
 import 'package:codmgo2/utils/dashboard_logic.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:animations/animations.dart';
-import 'package:codmgo2/utils/dashboard_ui_components.dart';
 import 'package:codmgo2/screens/profile_screen.dart';
-import 'package:codmgo2/services/profile_service.dart';
-
-import 'leave_dashboard.dart'; // Import the UI components file
+import 'package:intl/intl.dart';
+import 'leave_dashboard.dart';
+import 'package:codmgo2/utils/recent_activity.dart';
+import 'package:codmgo2/utils/clock_in_out_core_logic.dart';
 
 class DashboardPage extends StatefulWidget {
   final String firstName;
@@ -29,240 +24,72 @@ class DashboardPage extends StatefulWidget {
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
-class _DashboardPageState extends State<DashboardPage> with TickerProviderStateMixin {
-  late final ClockInOutController clockInOutController;
+class _DashboardPageState extends State<DashboardPage> with SingleTickerProviderStateMixin {
   late final DashboardLogic dashboardLogic;
-  late AnimationController _scaleAnimationController;
-  late AnimationController _clockInButtonController;
-  late AnimationController _clockOutButtonController;
-  late AnimationController _pageTransitionController;
-  late AnimationController _locationAnimationController;
-  late AnimationController _clockButtonPulseController;
-  late Animation<double> _scaleAnimation;
-  late Animation<Offset> _slideAnimation;
-  late Animation<double> _locationRotationAnimation;
-  late Animation<double> _clockButtonPulseAnimation;
-  int _currentIndex = 0;
-  bool _isRefreshing = false;
-  String? accessToken;
-  String? instanceUrl;
-
-  // Add variables to store user data from SharedPreferences
-  String displayFirstName = '';
-  String displayLastName = '';
-  String displayEmployeeId = '';
+  late final ClockInOutLogic clockInOutLogic;
+  late AnimationController scaleAnimationController;
+  late Animation<double> scaleAnimation;
 
   @override
   void initState() {
     super.initState();
-    clockInOutController = ClockInOutController();
-    clockInOutController.addListener(_onClockStatusChanged);
 
+    // Initialize dashboard logic
     dashboardLogic = DashboardLogic();
-    dashboardLogic.addListener(_onLocationStatusChanged);
+    dashboardLogic.addListener(_onDashboardStateChanged);
 
-    _initializeAnimationControllers();
-    _initializeDashboard();
-    _loadUserData(); // Load user data from SharedPreferences
-  }
+    // Initialize clock in/out logic
+    clockInOutLogic = ClockInOutLogic();
+    clockInOutLogic.addListener(_onClockInOutStateChanged);
 
-  // Load user data from SharedPreferences
-  Future<void> _loadUserData() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-
-      // Get data from SharedPreferences first, fallback to widget parameters
-      final firstName = prefs.getString('first_name') ?? widget.firstName;
-      final lastName = prefs.getString('last_name') ?? widget.lastName;
-      final employeeId = prefs.getString('employee_id') ?? widget.employeeId;
-
-      // Get auth data
-      final authData = await ProfileService.getAuthData();
-
-      setState(() {
-        displayFirstName = firstName;
-        displayLastName = lastName;
-        displayEmployeeId = employeeId;
-
-        if (authData != null) {
-          accessToken = authData['access_token'];
-          instanceUrl = authData['instance_url'];
-        }
-      });
-
-      print('Loaded user data: $firstName $lastName ($employeeId)'); // Debug print
-    } catch (e) {
-      print('Error loading user data: $e'); // Debug print
-      // Fallback to widget parameters if SharedPreferences fails
-      setState(() {
-        displayFirstName = widget.firstName;
-        displayLastName = widget.lastName;
-        displayEmployeeId = widget.employeeId;
-      });
-    }
-  }
-
-  Future<void> _loadAuthData() async {
-    try {
-      final authData = await ProfileService.getAuthData();
-      if (authData != null) {
-        setState(() {
-          accessToken = authData['access_token'];
-          instanceUrl = authData['instance_url'];
-        });
-      }
-    } catch (e) {
-      // Handle error silently or log it if needed
-    }
-  }
-
-  void _initializeAnimationControllers() {
-    _scaleAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 200),
-      vsync: this,
-    );
-
-    _clockInButtonController = AnimationController(
-      duration: const Duration(milliseconds: 150),
-      vsync: this,
-    );
-
-    _clockOutButtonController = AnimationController(
-      duration: const Duration(milliseconds: 150),
-      vsync: this,
-    );
-
-    _pageTransitionController = AnimationController(
+    // Initialize animation controller for RecentActivity
+    scaleAnimationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
     );
-
-    _locationAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
+    scaleAnimation = CurvedAnimation(
+      parent: scaleAnimationController,
+      curve: Curves.easeInOut,
     );
+    scaleAnimationController.forward();
 
-    _clockButtonPulseController = AnimationController(
-      duration: const Duration(milliseconds: 2000),
-      vsync: this,
-    );
-
-    _scaleAnimation = Tween<double>(
-      begin: 1.0,
-      end: 0.96,
-    ).animate(CurvedAnimation(
-      parent: _scaleAnimationController,
-      curve: Curves.easeInOut,
-    ));
-
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.02),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _pageTransitionController,
-      curve: Curves.easeInOut,
-    ));
-
-    _locationRotationAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _locationAnimationController,
-      curve: Curves.easeInOut,
-    ));
-
-    _clockButtonPulseAnimation = Tween<double>(
-      begin: 1.0,
-      end: 1.05,
-    ).animate(CurvedAnimation(
-      parent: _clockButtonPulseController,
-      curve: Curves.easeInOut,
-    ));
-
-    // Start the pulse animation and repeat
-    _clockButtonPulseController.repeat(reverse: true);
+    // Initialize dashboard with user data
+    _initializeDashboard();
   }
 
+  /// Initialize dashboard with user data
   Future<void> _initializeDashboard() async {
-    await dashboardLogic.initialize();
+    await dashboardLogic.initializeDashboard(
+      firstName: widget.firstName,
+      lastName: widget.lastName,
+      employeeId: widget.employeeId,
+    );
   }
 
-  @override
-  void dispose() {
-    clockInOutController.removeListener(_onClockStatusChanged);
-    clockInOutController.dispose();
-    dashboardLogic.removeListener(_onLocationStatusChanged);
-    dashboardLogic.dispose();
-    _scaleAnimationController.dispose();
-    _clockInButtonController.dispose();
-    _clockOutButtonController.dispose();
-    _pageTransitionController.dispose();
-    _locationAnimationController.dispose();
-    _clockButtonPulseController.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didPopNext() {
-    if (_currentIndex != 0) {
-      setState(() {
-        _currentIndex = 0;
-      });
-    }
-  }
-
-  void _onClockStatusChanged() {
-    if (mounted) setState(() {});
-  }
-
-  void _onLocationStatusChanged() {
+  /// Handle dashboard state changes
+  void _onDashboardStateChanged() {
     if (mounted) {
       setState(() {});
-
-      if (dashboardLogic.isLocationChecking) {
-        _locationAnimationController.repeat();
-      } else {
-        _locationAnimationController.stop();
-        _locationAnimationController.reset();
-      }
     }
   }
 
-  Future<void> _onRefresh() async {
-    if (_isRefreshing) return;
-
-    setState(() => _isRefreshing = true);
-    _pageTransitionController.forward();
-
-    dashboardLogic.showUpdatingLocationSnackbar(context);
-    await dashboardLogic.checkLocationRadius();
-
-    final prefs = await SharedPreferences.getInstance();
-    final userEmail = prefs.getString('user_email') ?? 'default@example.com';
-    await clockInOutController.initializeEmployeeData(userEmail);
-
-    // Reload user data to ensure it's up to date
-    await _loadUserData();
-
-    await Future.delayed(const Duration(milliseconds: 2000));
-
+  /// Handle clock in/out state changes
+  void _onClockInOutStateChanged() {
     if (mounted) {
-      _pageTransitionController.reverse();
-      setState(() => _isRefreshing = false);
-
-      Future.delayed(const Duration(milliseconds: 200), () {
-        if (mounted) {
-          dashboardLogic.showLocationSnackbar(context);
-        }
-      });
+      setState(() {});
     }
   }
 
-  void _onBottomNavTap(int index) {
-    setState(() {
-      _currentIndex = index;
-    });
+  /// Handle refresh action
+  Future<void> _onRefresh() async {
+    await dashboardLogic.onRefresh(context);
+  }
 
+  /// Handle bottom navigation tap
+  void _onBottomNavTap(int index) {
+    dashboardLogic.onBottomNavTap(index);
+
+    // Handle navigation based on index
     switch (index) {
       case 0:
         break;
@@ -270,32 +97,27 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => LeaveDashboardPage(employeeId: displayEmployeeId),
+            builder: (context) => LeaveDashboardPage(employeeId: dashboardLogic.displayEmployeeId),
           ),
         ).then((_) {
-          setState(() {
-            _currentIndex = 0;
-          });
+          dashboardLogic.resetBottomNavToHome();
         });
         break;
       case 2:
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => AttendanceHistoryPage(employeeId: displayEmployeeId),
+            builder: (context) => AttendanceHistoryPage(employeeId: dashboardLogic.displayEmployeeId),
           ),
         ).then((_) {
-          setState(() {
-            _currentIndex = 0;
-          });
+          dashboardLogic.resetBottomNavToHome();
         });
         break;
       case 3:
-        if (accessToken == null || instanceUrl == null) {
+        if (dashboardLogic.accessToken == null || dashboardLogic.instanceUrl == null) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Authentication data not available. Please try again.')),
           );
-          _loadAuthData();
           return;
         }
         Navigator.push(
@@ -304,161 +126,115 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
             builder: (context) => ProfilePage(),
           ),
         ).then((_) {
-          setState(() {
-            _currentIndex = 0;
-          });
+          dashboardLogic.resetBottomNavToHome();
         });
         break;
     }
   }
 
+  /// Handle clock in tap
+  Future<void> _onClockInTap() async {
+    await dashboardLogic.onClockIn(context);
+  }
+
+  /// Handle clock out tap
+  Future<void> _onClockOutTap() async {
+    // Add your clock out logic here
+    await dashboardLogic.onClockOut(context);
+  }
+
+  /// Handle location icon tap
   void _onLocationIconTap() {
-    if (dashboardLogic.isLocationChecking) {
-      dashboardLogic.showLocationSnackbar(context);
-    } else {
-      dashboardLogic.showUpdatingLocationSnackbar(context);
-
-      dashboardLogic.checkLocationRadius().then((_) {
-        Future.delayed(const Duration(milliseconds: 100), () {
-          if (mounted) {
-            dashboardLogic.showLocationSnackbar(context);
-          }
-        });
-      });
-    }
+    dashboardLogic.onLocationIconTap(context);
   }
 
-  String _getCurrentTime() {
-    final now = DateTime.now();
-    final hour = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
-    final minute = now.minute.toString().padLeft(2, '0');
-    return "${hour.toString().padLeft(2, '0')}:$minute";
+  String _getClockInTime() {
+    if (clockInOutLogic.inTime != null) {
+      return DateFormat('h:mm a').format(clockInOutLogic.inTime!);
+    }
+    return "--:-- - ";
   }
 
-  String _getCurrentDate() {
-    final now = DateTime.now();
-    final weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-    return "${weekdays[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}";
+  String _getClockOutTime() {
+    if (clockInOutLogic.outTime != null) {
+      return DateFormat('h:mm a').format(clockInOutLogic.outTime!);
+    } else if (clockInOutLogic.status == ClockStatus.clockedIn) {
+      return "--:-- - ";
+    }
+    return "--:-- -";
   }
 
-  Color _getLocationStatusColor(bool isDarkMode) {
-    if (dashboardLogic.isLocationChecking) {
-      return Colors.blueAccent;
-    } else if (dashboardLogic.isWithinRadius) {
-      return Colors.green;
-    } else {
-      return Colors.red;
-    }
-  }
-
-  IconData _getLocationIcon() {
-    if (dashboardLogic.isLocationChecking) {
-      return Icons.location_searching;
-    } else if (dashboardLogic.isWithinRadius) {
-      return Icons.location_on;
-    } else {
-      return Icons.location_off;
-    }
-  }
-
-  String _getLocationText() {
-    if (dashboardLogic.isLocationChecking) {
-      return "Checking location...";
-    } else if (dashboardLogic.isWithinRadius) {
-      return "You are in Office reach";
-    } else {
-      return "You are not in Office reach";
-    }
-  }
-
-  List<Map<String, dynamic>> _getRecentActivities() {
-    List<Map<String, dynamic>> activities = [];
-
-    if (clockInOutController.inTime != null) {
-      final inTime = clockInOutController.inTime!;
-      final hour = inTime.hour > 12 ? inTime.hour - 12 : (inTime.hour == 0 ? 12 : inTime.hour);
-      activities.add({
-        'time': "${hour.toString().padLeft(2, '0')}:${inTime.minute.toString().padLeft(2, '0')}",
-        'label': 'Clock In',
-        'icon': Icons.login,
-        'color': Colors.green,
-      });
-    }
-
-    if (clockInOutController.outTime != null) {
-      final outTime = clockInOutController.outTime!;
-      final hour = outTime.hour > 12 ? outTime.hour - 12 : (outTime.hour == 0 ? 12 : outTime.hour);
-      activities.add({
-        'time': "${hour.toString().padLeft(2, '0')}:${outTime.minute.toString().padLeft(2, '0')}",
-        'label': 'Clock Out',
-        'icon': Icons.logout,
-        'color': Colors.red,
-      });
-    }
-
-    // Add working hours if both times are available
-    if (clockInOutController.inTime != null && clockInOutController.outTime != null) {
-      final workingDuration = clockInOutController.outTime!.difference(clockInOutController.inTime!);
-      final hours = workingDuration.inHours;
-      final minutes = workingDuration.inMinutes % 60;
-      activities.add({
-        'time': "${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}",
-        'label': 'Working Hrs',
-        'icon': Icons.schedule,
-        'color': Colors.blue,
-      });
-    }
-
-    // Fill with placeholder if not enough activities
-    while (activities.length < 3) {
-      activities.add({
-        'time': '--:--',
-        'label': 'No Data',
-        'icon': Icons.schedule,
-        'color': Colors.grey,
-      });
-    }
-
-    return activities.take(3).toList();
+  @override
+  void dispose() {
+    // Remove listener and dispose dashboard logic
+    dashboardLogic.removeListener(_onDashboardStateChanged);
+    dashboardLogic.dispose();
+    clockInOutLogic.removeListener(_onClockInOutStateChanged);
+    clockInOutLogic.dispose();
+    scaleAnimationController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDarkMode = theme.brightness == Brightness.dark;
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
+    final backgroundColor = isDarkMode ? const Color(0xFF121212) : const Color(0xFFF5F7FA);
     final cardColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
+    final textColor = isDarkMode ? Colors.white : const Color(0xFF2D3748);
+    final subtitleColor = isDarkMode ? Colors.white70 : Colors.grey[600];
+
+    // Format current date and time
+    final now = DateTime.now();
+    final dateFormat = DateFormat('EEEE, MMM d yyyy');
+    final timeFormat = DateFormat('h:mm a');
+    final formattedDate = dateFormat.format(now);
+    final formattedTime = timeFormat.format(now);
 
     return Scaffold(
-      backgroundColor: isDarkMode ? const Color(0xFF1A1A1A) : Colors.white,
+      backgroundColor: backgroundColor,
       appBar: AppBar(
-        backgroundColor: isDarkMode ? const Color(0xFF1A1A1A) : Colors.white,
+        backgroundColor: cardColor,
         elevation: 0,
         automaticallyImplyLeading: false,
-        toolbarHeight: 80,
+        toolbarHeight: 63,
         title: Row(
           children: [
+            // App Icon
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFF667EEA).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.person,
+                color: Color(0xFF667EEA),
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 16),
             // User Info Section
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Hello, ${displayFirstName.isNotEmpty ? displayFirstName : 'User'}',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: isDarkMode ? Colors.white : const Color(0xFF2C2C2C),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _getCurrentDate(),
+                    'Hello,',
                     style: TextStyle(
                       fontSize: 14,
-                      color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                      color: subtitleColor,
+                      fontWeight: FontWeight.normal,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${dashboardLogic.displayFirstName.isNotEmpty ? dashboardLogic.displayFirstName : 'User'} ${dashboardLogic.displayLastName}',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: textColor,
                     ),
                   ),
                 ],
@@ -470,40 +246,28 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
-                  color: _getLocationStatusColor(isDarkMode).withOpacity(0.1),
+                  color: dashboardLogic.getLocationStatusColor(isDarkMode).withOpacity(0.1),
                   borderRadius: BorderRadius.circular(25),
                   border: Border.all(
-                    color: _getLocationStatusColor(isDarkMode).withOpacity(0.3),
+                    color: dashboardLogic.getLocationStatusColor(isDarkMode).withOpacity(0.3),
                     width: 1,
                   ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    AnimatedBuilder(
-                      animation: _locationRotationAnimation,
-                      builder: (Context, child) {
-                        return Transform.rotate(
-                          angle: dashboardLogic.isLocationChecking
-                              ? _locationRotationAnimation.value * 2 * 3.14159
-                              : 0,
-                          child: Icon(
-                            _getLocationIcon(),
-                            size: 20,
-                            color: _getLocationStatusColor(isDarkMode),
-                          ),
-                        );
-                      },
+                    Icon(
+                      dashboardLogic.getLocationIcon(),
+                      size: 20,
+                      color: dashboardLogic.getLocationStatusColor(isDarkMode),
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      dashboardLogic.isLocationChecking
-                          ? "Checking..."
-                          : (dashboardLogic.isWithinRadius ? "In Range" : "Out of Range"),
+                      dashboardLogic.getLocationHeaderText(),
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
-                        color: _getLocationStatusColor(isDarkMode),
+                        color: dashboardLogic.getLocationStatusColor(isDarkMode),
                       ),
                     ),
                   ],
@@ -513,50 +277,214 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
           ],
         ),
       ),
-      body: Container(
-        height: MediaQuery.of(context).size.height -
-            AppBar().preferredSize.height -
-            MediaQuery.of(context).padding.top -
-            85 - bottomPadding, // Account for bottom nav height
-        child: SlideTransition(
-          position: _slideAnimation,
-          child: DashboardUIComponents(
-            isDarkMode: isDarkMode,
-            getCurrentTime: _getCurrentTime,
-            getCurrentDate: _getCurrentDate,
-            onLocationIconTap: _onLocationIconTap,
-            getLocationIcon: _getLocationIcon,
-            getLocationStatusColor: _getLocationStatusColor,
-            getLocationText: _getLocationText,
-            locationRotationAnimation: _locationRotationAnimation,
-            clockInOutController: clockInOutController,
-            onClockInTap: () async {
-              if (clockInOutController.status != ClockStatus.clockedIn) {
-                _clockInButtonController.forward().then((_) {
-                  _clockInButtonController.reverse();
-                });
-                await clockInOutController.clockIn(context);
-              }
-            },
-            getRecentActivities: _getRecentActivities,
-            clockButtonPulseAnimation: _clockButtonPulseAnimation,
-            dashboardLogic: dashboardLogic,
+      body: RefreshIndicator(
+        onRefresh: _onRefresh,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Today's Attendance Card - from attendance history
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF667EEA).withOpacity(0.3),
+                      blurRadius: 15,
+                      offset: const Offset(0, 8),
+                    ),
+                    BoxShadow(
+                      color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      formattedTime,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      formattedDate,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        _buildClockStatCard('Clock In', _getClockInTime(), Icons.login),
+                        const SizedBox(width: 18),
+                        _buildClockStatCard('Clock Out', _getClockOutTime(), Icons.logout),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Upcoming Leave Section
+              Text(
+                'Upcoming Leave',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: cardColor,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.08),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                    BoxShadow(
+                      color: isDarkMode ? Colors.black.withOpacity(0.1) : Colors.black.withOpacity(0.03),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF667EEA).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.event_available,
+                        color: Color(0xFF667EEA),
+                        size: 30,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'No upcoming leaves',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: textColor,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'You have no scheduled leaves',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: subtitleColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Quick Actions Section
+              Text(
+                'Quick Actions',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildActionCard(
+                      context,
+                      'Clock In',
+                      Icons.login,
+                      Colors.green,
+                      isDarkMode,
+                      _onClockInTap,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildActionCard(
+                      context,
+                      'Clock Out',
+                      Icons.logout,
+                      Colors.red,
+                      isDarkMode,
+                      _onClockOutTap,
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              // Recent Activity Section
+              RecentActivity(
+                textColor: textColor,
+                cardColor: cardColor,
+                isDarkMode: isDarkMode,
+                scaleAnimation: scaleAnimation,
+                scaleAnimationController: scaleAnimationController,
+                employeeId: widget.employeeId,
+              ),
+
+              const SizedBox(height: 80),
+            ],
           ),
         ),
       ),
-      extendBody: true, // This allows the body to extend behind the bottom navigation
+      extendBody: true,
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         backgroundColor: cardColor,
         selectedItemColor: const Color(0xFF667EEA),
         unselectedItemColor: isDarkMode ? Colors.grey[500] : Colors.grey[400],
-        currentIndex: _currentIndex,
+        currentIndex: dashboardLogic.currentIndex,
         elevation: 10,
         onTap: _onBottomNavTap,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home),
-            activeIcon: Icon(Icons.home_filled),
+            activeIcon: Icon(Icons.home),
             label: 'Home',
           ),
           BottomNavigationBarItem(
@@ -565,8 +493,8 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
             label: 'Leave',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.work_outline),
-            activeIcon: Icon(Icons.work),
+            icon: Icon(Icons.calendar_month),
+            activeIcon: Icon(Icons.calendar_month),
             label: 'Attendance',
           ),
           BottomNavigationBarItem(
@@ -575,6 +503,104 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
             label: 'Profile',
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildClockStatCard(String title, String time, IconData icon) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: Colors.white, size: 18),
+                const SizedBox(width: 6),
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: 16, // Slightly smaller for label
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              time,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 24, // Bigger for time
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionCard(
+      BuildContext context,
+      String title,
+      IconData icon,
+      Color color,
+      bool isDarkMode,
+      VoidCallback onTap,
+      ) {
+    final cardColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
+    final textColor = isDarkMode ? Colors.white : const Color(0xFF2D3748);
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+            BoxShadow(
+              color: isDarkMode ? Colors.black.withOpacity(0.1) : Colors.black.withOpacity(0.03),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: color, size: 24),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: textColor,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

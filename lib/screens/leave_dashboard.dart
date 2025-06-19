@@ -463,8 +463,8 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> {
             label: 'Leave',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.work_outline),
-            activeIcon: Icon(Icons.work),
+            icon: Icon(Icons.calendar_month),
+            activeIcon: Icon(Icons.calendar_month),
             label: 'Attendance',
           ),
           BottomNavigationBarItem(

@@ -8,7 +8,7 @@ import 'package:codmgo2/services/clock_in_out_service.dart';
 import 'package:codmgo2/services/profile_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../utils/clock_in_out_logic.dart';
+import '../utils/clock_in_out_core_logic.dart';
 
 class AttendanceHistoryPage extends StatefulWidget {
   final String employeeId;
@@ -285,6 +285,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
       backgroundColor: backgroundColor,
       appBar: AppBar(
         elevation: 0,
+        toolbarHeight: 63,
         backgroundColor: cardColor,
         title: Text(
           'Attendance History',
@@ -416,8 +417,8 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
             label: 'Leave',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.work_outline),
-            activeIcon: Icon(Icons.work),
+            icon: Icon(Icons.calendar_month),
+            activeIcon: Icon(Icons.calendar_month),
             label: 'Attendance',
           ),
           BottomNavigationBarItem(
@@ -430,7 +431,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
     );
   }
 
-  Widget _buildTodayStatCard(String title, String value, IconData icon) {
+  Widget _buildTodayStatCard(String title, String time, IconData icon) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(12),
@@ -441,21 +442,27 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: Colors.white, size: 20),
+            Row(
+              children: [
+                Icon(icon, color: Colors.white, size: 18),
+                const SizedBox(width: 6),
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.9),
+                    fontSize: 16, // Slightly smaller for label
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
             Text(
-              value,
+              time,
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 16,
+                fontSize: 20, // Bigger for time
                 fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              title,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.8),
-                fontSize: 12,
               ),
             ),
           ],

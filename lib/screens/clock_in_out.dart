@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:codmgo2/utils/clock_in_out_logic.dart';
+import 'package:codmgo2/utils/clock_in_out_core_logic.dart';
 import 'package:animations/animations.dart';
 import 'package:logger/logger.dart';
 

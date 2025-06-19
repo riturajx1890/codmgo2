@@ -80,25 +80,17 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
   }
 
   Future<void> _checkRememberMeStatus() async {
-    _logger.i('Checking remember me status');
-
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final rememberMeTimestamp = prefs.getInt('remember_me_timestamp');
+      final rememberedData = await SharedPrefsUtils.checkRememberMeStatus();
 
-      if (rememberMeTimestamp != null) {
-        final now = DateTime.now().millisecondsSinceEpoch;
-        final daysPassed = (now - rememberMeTimestamp) / (1000 * 60 * 60 * 24);
+      if (rememberedData != null) {
+        final employeeId = rememberedData['employee_id'] ?? '';
+        final firstName = rememberedData['first_name'] ?? '';
+        final lastName = rememberedData['last_name'] ?? '';
 
-        _logger.i('Remember me found, days passed: $daysPassed');
+        _logger.i('Auto-login with remembered data: employeeId=$employeeId, firstName=$firstName, lastName=$lastName');
 
-        if (daysPassed < 45) {
-          final employeeId = prefs.getString('employee_id') ?? '';
-          final firstName = prefs.getString('first_name') ?? '';
-          final lastName = prefs.getString('last_name') ?? '';
-
-          _logger.i('Auto-login with stored data: employeeId=$employeeId, firstName=$firstName, lastName=$lastName');
-
+        if (mounted) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             Navigator.pushReplacement(
               context,
@@ -109,38 +101,10 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
               )),
             );
           });
-        } else {
-          _logger.i('Remember me expired, clearing stored data');
-          await prefs.remove('remember_me_timestamp');
-          await prefs.remove('employee_id');
-          await prefs.remove('first_name');
-          await prefs.remove('last_name');
         }
-      } else {
-        _logger.i('No remember me data found');
       }
     } catch (e, stackTrace) {
       _logger.e('Error checking remember me status: $e', error: e, stackTrace: stackTrace);
-    }
-  }
-
-  Future<void> _saveRememberMeStatus(String employeeId, String firstName, String lastName) async {
-    _logger.i('Saving remember me status: employeeId=$employeeId');
-
-    if (_rememberMe) {
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final currentTimestamp = DateTime.now().millisecondsSinceEpoch;
-
-        await prefs.setInt('remember_me_timestamp', currentTimestamp);
-        await prefs.setString('employee_id', employeeId);
-        await prefs.setString('first_name', firstName);
-        await prefs.setString('last_name', lastName);
-
-        _logger.i('Remember me data saved successfully');
-      } catch (e, stackTrace) {
-        _logger.e('Error saving remember me data: $e', error: e, stackTrace: stackTrace);
-      }
     }
   }
 
@@ -258,8 +222,17 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
           return;
         }
 
+        // Save remember me status if enabled using SharedPrefsUtils
         if (_rememberMe) {
-          await _saveRememberMeStatus(employeeId, firstName, lastName);
+          final saveSuccess = await SharedPrefsUtils.saveRememberMeStatus(employeeId, firstName, lastName);
+          if (saveSuccess) {
+            _logger.i('Remember me status saved successfully');
+          } else {
+            _logger.w('Failed to save remember me status');
+          }
+        } else {
+          // Clear remember me data if checkbox is unchecked
+          await SharedPrefsUtils.clearRememberMeData();
         }
 
         _logger.i('Navigating to dashboard...');
@@ -391,17 +364,19 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SizedBox(height: 120),
+                      const SizedBox(height: 24),
                       Center(
                         child: Image.asset(
-                          CImages.appLogo,
-                          height: 120,
-                          width: 120,
+                          'assets/codm_logo.png',
+                          height: 125,
+                          width: 200,
+                          fit: BoxFit.contain,
                         ),
                       ),
                       const SizedBox(height: 8),
                       Center(
                         child: Text(
-                          'Welcome Back!',
+                          'Log in',
                           style: TextStyle(
                             color: textColor,
                             fontSize: 24,
@@ -409,16 +384,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Center(
-                        child: Text(
-                          'Sign in to continue',
-                          style: TextStyle(
-                            color: subtitleColor,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ),
+
                       const SizedBox(height: 24),
                       Form(
                         child: Column(
@@ -432,7 +398,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                 hintText: 'Email',
                                 hintStyle: TextStyle(color: subtitleColor),
                                 filled: true,
-                                fillColor: isDarkMode ? const Color(0xFF2A2A2A) : Colors.grey[100],
+                                fillColor: isDarkMode ? const Color(0xFF2A2A2A) : Colors.white,
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                   borderSide: BorderSide.none,
@@ -440,15 +406,29 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                 enabledBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                   borderSide: BorderSide(
-                                    color: _hasValidationError ? Colors.red : Colors.transparent,
-                                    width: 2,
+                                    color: _hasValidationError ? Colors.red : (isDarkMode ? Colors.transparent : Colors.grey[300]!),
+                                    width: 1,
                                   ),
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                   borderSide: BorderSide(
                                     color: _hasValidationError ? Colors.red : const Color(0xFF667EEA),
-                                    width: 2,
+                                    width: 1,
+                                  ),
+                                ),
+                                errorBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide(
+                                    color: Colors.red,
+                                    width: 1,
+                                  ),
+                                ),
+                                focusedErrorBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide(
+                                    color: Colors.red,
+                                    width: 1,
                                   ),
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
@@ -476,7 +456,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                 hintText: 'Password',
                                 hintStyle: TextStyle(color: subtitleColor),
                                 filled: true,
-                                fillColor: isDarkMode ? const Color(0xFF2A2A2A) : Colors.grey[100],
+                                fillColor: isDarkMode ? const Color(0xFF2A2A2A) : Colors.white,
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                   borderSide: BorderSide.none,
@@ -484,7 +464,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                 enabledBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                   borderSide: BorderSide(
-                                    color: _hasValidationError ? Colors.red : Colors.transparent,
+                                    color: _hasValidationError ? Colors.red : (isDarkMode ? Colors.transparent : Colors.grey[300]!),
                                     width: 2,
                                   ),
                                 ),
@@ -512,6 +492,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                         setState(() {
                                           _rememberMe = value ?? false;
                                         });
+                                        _logger.i('Remember me checkbox changed to: $_rememberMe');
                                       },
                                       activeColor: const Color(0xFF667EEA),
                                       checkColor: Colors.white,
@@ -564,13 +545,19 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                 },
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: const Color(0xFF667EEA),
+                                  disabledBackgroundColor: const Color(0xFF667EEA), // Keep same color when disabled
                                   foregroundColor: Colors.white,
+                                  disabledForegroundColor: Colors.white, // Keep white text when disabled
                                   padding: const EdgeInsets.symmetric(vertical: 16),
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),
                                   ),
                                   elevation: 0,
                                   shadowColor: Colors.transparent,
+                                  side: BorderSide(
+                                    color: const Color(0xFF667EEA), // Border same as button color
+                                    width: 1,
+                                  ),
                                 ),
                                 child: _isLoading
                                     ? Row(
@@ -618,8 +605,4 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       ),
     );
   }
-}
-
-class CImages {
-  static const String appLogo = "assets/codm_logo.png";
 }

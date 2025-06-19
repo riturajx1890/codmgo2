@@ -5,6 +5,7 @@ import 'package:codmgo2/utils/profile_logic.dart';
 import 'package:codmgo2/screens/dashboard_page.dart';
 import 'package:codmgo2/screens/leave_dashboard.dart';
 import 'package:codmgo2/screens/attendence_history.dart';
+import 'package:codmgo2/utils/logout_logic.dart';
 
 class ProfilePage extends StatefulWidget {
   final String? employeeId;
@@ -138,32 +139,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _showLogoutDialog() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Logout'),
-          content: const Text('Are you sure you want to logout?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                // Clear profile data
-                profileLogic.clearProfile();
-
-                // Navigate to login screen
-                Navigator.pop(context); // Close dialog
-                Navigator.pushReplacementNamed(context, '/login'); // Adjust route as needed
-              },
-              child: const Text('Logout', style: TextStyle(color: Colors.red)),
-            ),
-          ],
-        );
-      },
-    );
+    LogoutLogic.showLogoutDialog(context);
   }
 
   @override
@@ -180,6 +156,7 @@ class _ProfilePageState extends State<ProfilePage> {
           backgroundColor: backgroundColor,
           appBar: AppBar(
             elevation: 0,
+            toolbarHeight: 63,
             backgroundColor: cardColor,
             title: Text(
               'Profile',
@@ -481,6 +458,11 @@ class _ProfilePageState extends State<ProfilePage> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         elevation: 4,
+                        shadowColor: Colors.transparent,
+                        side: BorderSide(
+                          color: const Color(0xFF0000), // Border same as button color
+                          width: 1,
+                        ),
                       ),
                       child: const Text(
                         'Logout',
@@ -517,8 +499,8 @@ class _ProfilePageState extends State<ProfilePage> {
                 label: 'Leave',
               ),
               BottomNavigationBarItem(
-                icon: Icon(Icons.work_outline),
-                activeIcon: Icon(Icons.work),
+                icon: Icon(Icons.calendar_month),
+                activeIcon: Icon(Icons.calendar_month),
                 label: 'Attendance',
               ),
               BottomNavigationBarItem(
