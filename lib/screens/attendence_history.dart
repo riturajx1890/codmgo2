@@ -8,7 +8,7 @@ import 'package:codmgo2/services/clock_in_out_service.dart';
 import 'package:codmgo2/services/profile_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../utils/clock_in_out_core_logic.dart';
+import '../utils/clock_in_out_logic.dart';
 
 class AttendanceHistoryPage extends StatefulWidget {
   final String employeeId;

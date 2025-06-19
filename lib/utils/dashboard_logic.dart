@@ -4,7 +4,7 @@ import 'package:codmgo2/utils/location_logic.dart';
 import 'package:codmgo2/screens/clock_in_out.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:codmgo2/services/profile_service.dart';
-import 'package:codmgo2/utils/clock_in_out_core_logic.dart';
+import 'package:codmgo2/utils/clock_in_out_logic.dart';
 
 class DashboardLogic extends ChangeNotifier {
   static final Logger _logger = Logger();
@@ -33,6 +33,12 @@ class DashboardLogic extends ChangeNotifier {
   String _originalLastName = '';
   String _originalEmployeeId = '';
 
+  // Clock timing properties
+  DateTime? _lastClockInTime;
+  DateTime? _lastClockOutTime;
+  static const int _minClockOutMinutes = 5; // 45 minutes
+  static const int _clockInCooldownMinutes = 1; // 18 hours
+
   // Getters for location
   bool get isLocationChecking => _isLocationChecking;
   bool get isWithinRadius => _isWithinRadius;
@@ -53,6 +59,10 @@ class DashboardLogic extends ChangeNotifier {
   // Getter for clock controller
   ClockInOutController get clockInOutController => _clockInOutController;
 
+  // Getters for clock timing
+  DateTime? get lastClockInTime => _lastClockInTime;
+  DateTime? get lastClockOutTime => _lastClockOutTime;
+
   /// Initialize the dashboard logic with user data
   Future<void> initializeDashboard({
     required String firstName,
@@ -70,11 +80,12 @@ class DashboardLogic extends ChangeNotifier {
     _clockInOutController = ClockInOutController();
     _clockInOutController.addListener(_onClockStatusChanged);
 
-    // Load user data and initialize location check
+    // Load user data, auth data, initialize location check, and clock times
     await Future.wait([
       _loadUserData(),
       _loadAuthData(),
       checkLocationRadius(),
+      _loadClockTimes(),
     ]);
   }
 
@@ -118,8 +129,31 @@ class DashboardLogic extends ChangeNotifier {
     }
   }
 
+  /// Load clock in/out times from SharedPreferences
+  Future<void> _loadClockTimes() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final clockInTime = prefs.getString('last_clock_in_time');
+      final clockOutTime = prefs.getString('last_clock_out_time');
+
+      if (clockInTime != null) {
+        _lastClockInTime = DateTime.parse(clockInTime);
+      }
+      if (clockOutTime != null) {
+        _lastClockOutTime = DateTime.parse(clockOutTime);
+      }
+
+      // Sync with controller
+      _refreshClockTimes();
+      notifyListeners();
+    } catch (e) {
+      _logger.e('Error loading clock times: $e');
+    }
+  }
+
   /// Handle clock status changes
   void _onClockStatusChanged() {
+    _refreshClockTimes();
     notifyListeners();
   }
 
@@ -141,7 +175,6 @@ class DashboardLogic extends ChangeNotifier {
       _distance = result['distance'] ?? 0.0;
 
       _logger.i('Location check completed: $_locationMessage');
-
     } catch (e, stackTrace) {
       _logger.e('Error checking location radius: $e', error: e, stackTrace: stackTrace);
       _isWithinRadius = false;
@@ -168,8 +201,14 @@ class DashboardLogic extends ChangeNotifier {
     final userEmail = prefs.getString('user_email') ?? 'default@example.com';
     await _clockInOutController.initializeEmployeeData(userEmail);
 
-    // Reload user data to ensure it's up to date
-    await _loadUserData();
+    // Reload user data and clock times
+    await Future.wait([
+      _loadUserData(),
+      _loadClockTimes(),
+    ]);
+
+    // Refresh clock in/out times from controller
+    _refreshClockTimes();
 
     await Future.delayed(const Duration(milliseconds: 2000));
 
@@ -197,15 +236,85 @@ class DashboardLogic extends ChangeNotifier {
   /// Handle clock in action
   Future<void> onClockIn(BuildContext context) async {
     if (_clockInOutController.status != ClockStatus.clockedIn) {
+      if (!canClockIn()) {
+        return; // The popup is handled in the UI layer (DashboardPage)
+      }
       await _clockInOutController.clockIn(context);
+      _lastClockInTime = _clockInOutController.inTime;
+      // Save to SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      if (_lastClockInTime != null) {
+        await prefs.setString('last_clock_in_time', _lastClockInTime!.toIso8601String());
+      }
+      notifyListeners();
     }
   }
 
   /// Handle clock out action
   Future<void> onClockOut(BuildContext context) async {
     if (_clockInOutController.status != ClockStatus.clockedOut) {
+      if (!canClockOut()) {
+        return; // The popup is handled in the UI layer (DashboardPage)
+      }
       await _clockInOutController.clockOut(context);
+      _lastClockOutTime = _clockInOutController.outTime;
+      // Save to SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      if (_lastClockOutTime != null) {
+        await prefs.setString('last_clock_out_time', _lastClockOutTime!.toIso8601String());
+      }
+      notifyListeners();
     }
+  }
+
+  /// Check if user can clock in (only once every 1080 minutes)
+  bool canClockIn() {
+    if (_lastClockInTime == null) return true;
+
+    final now = DateTime.now();
+    final lastClockIn = _lastClockInTime!;
+    final minutesSinceLastClockIn = now.difference(lastClockIn).inMinutes;
+
+    return minutesSinceLastClockIn >= _clockInCooldownMinutes;
+  }
+
+  /// Check if user can clock out (only after 45 minutes of clocking in)
+  bool canClockOut() {
+    if (_lastClockInTime == null || _clockInOutController.status == ClockStatus.clockedOut) {
+      return false;
+    }
+
+
+    final now = DateTime.now();
+    final lastClockIn = _lastClockInTime!;
+    final minutesSinceClockIn = now.difference(lastClockIn).inMinutes;
+
+    return minutesSinceClockIn >= _minClockOutMinutes;
+  }
+
+  /// Get remaining time until user can clock out
+  int getRemainingTimeForClockOut() {
+    if (_lastClockInTime == null) return _minClockOutMinutes;
+
+    final now = DateTime.now();
+    final lastClockIn = _lastClockInTime!;
+    final minutesSinceClockIn = now.difference(lastClockIn).inMinutes;
+    final remainingMinutes = _minClockOutMinutes - minutesSinceClockIn;
+
+    return remainingMinutes > 0 ? remainingMinutes : 0;
+
+  }
+
+
+  /// Refresh clock times from the controller
+  void _refreshClockTimes() {
+    if (_clockInOutController.inTime != null) {
+      _lastClockInTime = _clockInOutController.inTime;
+    }
+    if (_clockInOutController.outTime != null) {
+      _lastClockOutTime = _clockInOutController.outTime;
+    }
+    notifyListeners();
   }
 
   /// Get current time formatted
@@ -292,19 +401,6 @@ class DashboardLogic extends ChangeNotifier {
         'label': 'Clock Out',
         'icon': Icons.logout,
         'color': Colors.red,
-      });
-    }
-
-    // Add working hours if both times are available
-    if (_clockInOutController.inTime != null && _clockInOutController.outTime != null) {
-      final workingDuration = _clockInOutController.outTime!.difference(_clockInOutController.inTime!);
-      final hours = workingDuration.inHours;
-      final minutes = workingDuration.inMinutes % 60;
-      activities.add({
-        'time': "${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}",
-        'label': 'Working Hrs',
-        'icon': Icons.schedule,
-        'color': Colors.blue,
       });
     }
 
@@ -396,7 +492,7 @@ class DashboardLogic extends ChangeNotifier {
     }
   }
 
-  /// Show updating location snackbar (public method)
+  /// Show updating location snackbar
   void showUpdatingLocationSnackbar(BuildContext context) {
     _showSnackbar(
       context,
@@ -453,7 +549,7 @@ class DashboardLogic extends ChangeNotifier {
     );
   }
 
-  /// Initialize location check (call this on dashboard init)
+  /// Initialize location check
   Future<void> initialize() async {
     _logger.i('Initializing dashboard logic location check');
     await checkLocationRadius();

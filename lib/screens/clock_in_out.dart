@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:codmgo2/utils/clock_in_out_core_logic.dart';
+import 'package:codmgo2/utils/clock_in_out_logic.dart';
 import 'package:animations/animations.dart';
 import 'package:logger/logger.dart';
 
@@ -182,7 +182,7 @@ class _AttendanceProcessingPageState extends State<AttendanceProcessingPage>
       final apiCallFuture = widget.logic.attemptClockInOut(isClockIn: widget.isClockIn);
 
       // Always wait for exactly 1500ms to show processing animation
-      await Future.delayed(const Duration(milliseconds: 1500));
+      await Future.delayed(const Duration(milliseconds: 2700));
       _logger.d('Processing animation completed after 1500ms');
 
       // Try to get the API result (it might be completed by now)

@@ -2,28 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:codmgo2/services/clock_in_out_service.dart';
 import 'package:codmgo2/services/salesforce_api_service.dart';
+import 'package:codmgo2/utils/shared_prefs_utils.dart'; // Import the SharedPrefsUtils
 import 'package:logger/logger.dart';
-import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:codmgo2/utils/location_logic.dart'; // Import the new LocationLogic class
+import 'package:codmgo2/utils/location_logic.dart';
+import 'timer_notification_logic.dart'; // Import the timer logic
 
 enum ClockStatus { unmarked, clockedIn, clockedOut }
 
 class ClockInOutLogic with ChangeNotifier {
   static final Logger _logger = Logger();
-  static final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
 
   ClockStatus _status = ClockStatus.unmarked;
   DateTime? inTime;
   DateTime? outTime;
-  Timer? _notificationTimer;
-  Timer? _autoClockOutTimer;
-  Timer? _eighteenHourTimer;
-  int _notificationCount = 0;
-  static const int _maxNotifications = 3;
 
   bool _canClockIn = true;
   bool _canClockOut = false;
@@ -32,12 +26,19 @@ class ClockInOutLogic with ChangeNotifier {
   String? instanceUrl;
   String? employeeId;
   String? userEmail;
+  String? firstName;
+  String? lastName;
 
-  final LocationLogic _locationLogic = LocationLogic(); // Instance of LocationLogic
+  final LocationLogic _locationLogic = LocationLogic();
 
+  // Timer logic integration
+  late final TimerNotificationLogic _timerLogic;
+
+  // Getters
   ClockStatus get status => _status;
   bool get canClockIn => _canClockIn;
   bool get canClockOut => _canClockOut;
+  TimerNotificationLogic get timerLogic => _timerLogic; // Expose timer logic for external access
 
   String get statusText {
     switch (_status) {
@@ -51,31 +52,20 @@ class ClockInOutLogic with ChangeNotifier {
   }
 
   ClockInOutLogic() {
-    _initializeNotifications();
+    // Initialize timer logic with callback
+    _timerLogic = TimerNotificationLogic(
+      onStatusUpdate: updateClockStatus,
+    );
     _loadTodayStatus();
   }
 
   @override
   void dispose() {
-    _notificationTimer?.cancel();
-    _autoClockOutTimer?.cancel();
-    _eighteenHourTimer?.cancel();
+    _timerLogic.dispose();
     super.dispose();
   }
 
-  Future<void> _initializeNotifications() async {
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosSettings = DarwinInitializationSettings();
-    const initSettings = InitializationSettings(
-      android: androidSettings,
-      iOS: iosSettings,
-    );
-
-    await _notificationsPlugin.initialize(initSettings);
-  }
-
-  // Add this method to your ClockInOutService class
-
+  // Static method for getting attendance history
   static Future<List<Map<String, dynamic>>> getAttendanceHistory(
       String accessToken,
       String instanceUrl,
@@ -85,7 +75,6 @@ class ClockInOutLogic with ChangeNotifier {
     final Logger logger = Logger();
 
     try {
-      // Calculate date range for the last 30 days to ensure we get enough records
       final endDate = DateTime.now();
       final startDate = endDate.subtract(const Duration(days: 30));
 
@@ -157,7 +146,9 @@ class ClockInOutLogic with ChangeNotifier {
             _canClockIn = false;
             _canClockOut = false;
             _logger.i('Found completed attendance for today');
-            // _startEighteenHourTimer(); // Comment out this line
+
+            // Stop any running timers since user is already clocked out
+            _timerLogic.stopTimers();
           } else {
             // Already clocked in today
             _status = ClockStatus.clockedIn;
@@ -165,9 +156,9 @@ class ClockInOutLogic with ChangeNotifier {
             _canClockIn = false;
             _canClockOut = true;
             _logger.i('Found active clock-in for today');
-            _startNotificationTimer();
-            _startAutoClockOutTimer();
-            // _startEighteenHourTimer(); // Comment out this line
+
+            // Resume timers with existing clock in time
+            _timerLogic.resumeTimers(inTime!);
           }
           notifyListeners();
         } else {
@@ -175,6 +166,9 @@ class ClockInOutLogic with ChangeNotifier {
           _canClockIn = true;
           _canClockOut = false;
           _logger.i('No attendance found for today');
+
+          // Ensure timers are stopped
+          _timerLogic.stopTimers();
         }
       } catch (e, stackTrace) {
         _logger.e('Error loading today\'s status: $e', error: e, stackTrace: stackTrace);
@@ -182,224 +176,42 @@ class ClockInOutLogic with ChangeNotifier {
     }
   }
 
-  void _startEighteenHourTimer() {
-    if (inTime == null) return;
-
-    _eighteenHourTimer?.cancel();
-
-    final now = DateTime.now();
-    final clockInTime = inTime!;
-    final elapsed = now.difference(clockInTime);
-    const eighteenHourDelay = Duration(hours: 18);
-
-    Duration initialDelay;
-    if (elapsed >= eighteenHourDelay) {
-      // If already past 18 hours, enable clock in immediately
-      initialDelay = Duration.zero;
-    } else {
-      // Time until 18 hours complete
-      initialDelay = eighteenHourDelay - elapsed;
-    }
-
-    _logger.i('Starting 18-hour timer - will enable clock in after: ${initialDelay.inHours} hours ${initialDelay.inMinutes % 60} minutes');
-
-    _eighteenHourTimer = Timer(initialDelay, () {
-      _logger.i('18 hours completed - enabling clock in');
-      _canClockIn = true;
-      notifyListeners();
-    });
-  }
-
-  void _startNotificationTimer() {
-    if (inTime == null) return;
-
-    _notificationTimer?.cancel();
-    _notificationCount = 0;
-
-    final now = DateTime.now();
-    final clockInTime = inTime!;
-    final elapsed = now.difference(clockInTime);
-
-    // Calculate time until first notification (9 hours 15 minutes)
-    const firstNotificationDelay = Duration(hours: 9, minutes: 15);
-
-    Duration initialDelay;
-    if (elapsed >= firstNotificationDelay) {
-      // If already past 9:15, calculate which notification should be next
-      final minutesPast915 = elapsed.inMinutes - firstNotificationDelay.inMinutes;
-      _notificationCount = (minutesPast915 / 45).floor() + 1;
-
-      // Don't exceed max notifications
-      if (_notificationCount >= _maxNotifications) {
-        _logger.i('Maximum notifications already sent');
-        return;
-      }
-
-      // Time until next notification
-      final nextNotificationMinutes = (_notificationCount * 45) - minutesPast915;
-      initialDelay = Duration(minutes: nextNotificationMinutes);
-    } else {
-      // Time until first notification
-      initialDelay = firstNotificationDelay - elapsed;
-    }
-
-    _logger.i('Starting notification timer - first notification in: ${initialDelay.inMinutes} minutes');
-
-    _notificationTimer = Timer(initialDelay, () {
-      _sendNotification();
-      _schedulePeriodicNotifications();
-    });
-  }
-
-  void _schedulePeriodicNotifications() {
-    _notificationTimer = Timer.periodic(const Duration(minutes: 45), (timer) {
-      if (_notificationCount >= _maxNotifications || _status != ClockStatus.clockedIn) {
-        timer.cancel();
-        return;
-      }
-      _sendNotification();
-    });
-  }
-
-  void _startAutoClockOutTimer() {
-    if (inTime == null) return;
-
-    _autoClockOutTimer?.cancel();
-
-    final now = DateTime.now();
-    final clockInTime = inTime!;
-    final elapsed = now.difference(clockInTime);
-    const autoClockOutDelay = Duration(hours: 12);
-
-    Duration initialDelay;
-    if (elapsed >= autoClockOutDelay) {
-      // If already past 12 hours, auto clock out immediately
-      initialDelay = Duration.zero;
-    } else {
-      // Time until auto clock out
-      initialDelay = autoClockOutDelay - elapsed;
-    }
-
-    _logger.i('Starting auto clock out timer - will auto clock out in: ${initialDelay.inHours} hours ${initialDelay.inMinutes % 60} minutes');
-
-    _autoClockOutTimer = Timer(initialDelay, () {
-      _performAutoClockOut();
-    });
-  }
-
-  Future<void> _performAutoClockOut() async {
-    if (_status != ClockStatus.clockedIn) {
-      _logger.i('Auto clock out cancelled - user not clocked in');
-      return;
-    }
-
-    _logger.i('Performing automatic clock out after 12 hours');
-
-    try {
-      await _loadCredentials();
-      final currentEmployeeId = await _getEmployeeId();
-
-      if (currentEmployeeId != null && accessToken != null && instanceUrl != null) {
-        final todayAttendance = await ClockInOutService.getTodayAttendance(
-          accessToken!,
-          instanceUrl!,
-          currentEmployeeId,
-        );
-
-        if (todayAttendance != null && todayAttendance['Id'] != null && todayAttendance['Out_Time__c'] == null) {
-          // For auto clock out, we don't save the out_time (it will be blank)
-          _logger.i('Auto clock out - marking status as clocked out but not saving out_time');
-
-          _status = ClockStatus.clockedOut;
-          outTime = null; // Keep out time as null for auto clock out
-          _canClockIn = false; // Will be enabled after 18 hours
-          _canClockOut = false;
-          _notificationTimer?.cancel();
-          _autoClockOutTimer?.cancel();
-          notifyListeners();
-
-          // Send notification about auto clock out
-          await _sendAutoClockOutNotification();
-
-          _logger.i('Auto clock out completed - out_time kept blank');
-        }
-      }
-    } catch (e, stackTrace) {
-      _logger.e('Error during auto clock out: $e', error: e, stackTrace: stackTrace);
-    }
-  }
-
-  Future<void> _sendAutoClockOutNotification() async {
-    const androidDetails = AndroidNotificationDetails(
-      'auto_clockout_channel',
-      'Auto Clock Out Notifications',
-      channelDescription: 'Notifications for automatic clock out',
-      importance: Importance.high,
-      priority: Priority.high,
-    );
-
-    const iosDetails = DarwinNotificationDetails();
-    const notificationDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await _notificationsPlugin.show(
-      9999, // Unique ID for auto clock out notification
-      'Auto Clock Out',
-      'You have been automatically clocked out after 12 hours of work.',
-      notificationDetails,
-    );
-  }
-
-  void _sendNotification() async {
-    if (_status != ClockStatus.clockedIn || inTime == null || _notificationCount >= _maxNotifications) {
-      _notificationTimer?.cancel();
-      return;
-    }
-
-    _notificationCount++;
-    final hoursWorked = DateTime.now().difference(inTime!).inHours;
-    final minutesWorked = DateTime.now().difference(inTime!).inMinutes;
-
-    const androidDetails = AndroidNotificationDetails(
-      'overtime_channel',
-      'Overtime Notifications',
-      channelDescription: 'Notifications for overtime work hours',
-      importance: Importance.high,
-      priority: Priority.high,
-    );
-
-    const iosDetails = DarwinNotificationDetails();
-    const notificationDetails = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    String title = 'Overtime Alert!';
-    String body = 'You\'ve been clocked in for $hoursWorked hour : $minutesWorked minutes.\n Consider clocking out.';
-
-    await _notificationsPlugin.show(
-      _notificationCount,
-      title,
-      body,
-      notificationDetails,
-    );
-
-    _logger.i('Sent overtime notification #$_notificationCount after ${(minutesWorked / 60).toStringAsFixed(1)} hours');
-  }
-
   Future<void> _loadCredentials() async {
     _logger.i('Loading credentials from SharedPreferences');
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      accessToken = prefs.getString('access_token');
-      instanceUrl = prefs.getString('instance_url');
-      employeeId = prefs.getString('employee_id') ?? prefs.getString('current_employee_id');
-      userEmail = prefs.getString('user_email');
+      // First check if remember me is valid and load data from there
+      final rememberMeData = await SharedPrefsUtils.checkRememberMeStatus();
 
-      _logger.i('Credentials loaded - accessToken: ${accessToken != null ? "present" : "null"}, instanceUrl: ${instanceUrl != null ? "present" : "null"}, employeeId: $employeeId, userEmail: $userEmail');
+      if (rememberMeData != null) {
+        _logger.i('Remember me data found, using cached employee data');
+        employeeId = rememberMeData['employee_id'];
+        firstName = rememberMeData['first_name'];
+        lastName = rememberMeData['last_name'];
+
+        // Load other credentials from SharedPreferences
+        final employeeData = await SharedPrefsUtils.getEmployeeDataFromPrefs();
+        accessToken = employeeData['access_token'];
+        instanceUrl = employeeData['instance_url'];
+        userEmail = employeeData['user_email'];
+
+        _logger.i('Credentials loaded from remember me - employeeId: $employeeId, firstName: $firstName, lastName: $lastName');
+        _logger.i('Additional credentials - accessToken: ${accessToken != null ? "present" : "null"}, instanceUrl: ${instanceUrl != null ? "present" : "null"}, userEmail: $userEmail');
+        return;
+      }
+
+      // If no remember me data, fall back to regular SharedPreferences loading
+      _logger.i('No remember me data found, loading from regular SharedPreferences');
+      final employeeData = await SharedPrefsUtils.getEmployeeDataFromPrefs();
+
+      accessToken = employeeData['access_token'];
+      instanceUrl = employeeData['instance_url'];
+      employeeId = employeeData['employee_id'];
+      userEmail = employeeData['user_email'];
+      firstName = employeeData['first_name'];
+      lastName = employeeData['last_name'];
+
+      _logger.i('Credentials loaded from SharedPreferences - accessToken: ${accessToken != null ? "present" : "null"}, instanceUrl: ${instanceUrl != null ? "present" : "null"}, employeeId: $employeeId, userEmail: $userEmail');
     } catch (e, stackTrace) {
       _logger.e('Error loading credentials: $e', error: e, stackTrace: stackTrace);
     }
@@ -429,8 +241,21 @@ class ClockInOutLogic with ChangeNotifier {
     }
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final storedEmployeeId = prefs.getString('employee_id') ?? prefs.getString('current_employee_id');
+      // First check remember me status
+      final rememberMeData = await SharedPrefsUtils.checkRememberMeStatus();
+
+      if (rememberMeData != null && rememberMeData['employee_id'] != null) {
+        final rememberMeEmployeeId = rememberMeData['employee_id']!;
+        _logger.i('Employee ID found in remember me data: $rememberMeEmployeeId');
+        employeeId = rememberMeEmployeeId;
+        firstName = rememberMeData['first_name'];
+        lastName = rememberMeData['last_name'];
+        return employeeId;
+      }
+
+      // If no remember me data, check regular SharedPreferences
+      final employeeData = await SharedPrefsUtils.getEmployeeDataFromPrefs();
+      final storedEmployeeId = employeeData['employee_id'];
 
       if (storedEmployeeId != null && storedEmployeeId.isNotEmpty) {
         _logger.i('Employee ID found in SharedPreferences: $storedEmployeeId');
@@ -438,11 +263,12 @@ class ClockInOutLogic with ChangeNotifier {
         return employeeId;
       }
 
-      _logger.w('No employee ID found in SharedPreferences');
+      _logger.w('No employee ID found in SharedPreferences or remember me data');
     } catch (e, stackTrace) {
-      _logger.e('Error loading employee ID from SharedPreferences: $e', error: e, stackTrace: stackTrace);
+      _logger.e('Error loading employee ID: $e', error: e, stackTrace: stackTrace);
     }
 
+    // If still no employee ID, try to fetch from Salesforce
     if (userEmail != null && userEmail!.isNotEmpty &&
         accessToken != null && instanceUrl != null) {
       _logger.i('Attempting to fetch employee from Salesforce using email: $userEmail');
@@ -456,9 +282,25 @@ class ClockInOutLogic with ChangeNotifier {
 
         if (employee != null && employee['Id'] != null) {
           final fetchedEmployeeId = employee['Id'].toString();
-          _logger.i('Employee fetched from Salesforce: $fetchedEmployeeId');
+          final fetchedFirstName = employee['First_Name__c']?.toString() ?? '';
+          final fetchedLastName = employee['Last_Name__c']?.toString() ?? '';
 
+          _logger.i('Employee fetched from Salesforce: $fetchedEmployeeId, $fetchedFirstName $fetchedLastName');
+
+          // Save to both regular prefs and remember me if first/last names are available
           await _saveEmployeeId(fetchedEmployeeId);
+
+          if (fetchedFirstName.isNotEmpty && fetchedLastName.isNotEmpty) {
+            await SharedPrefsUtils.saveRememberMeStatus(
+                fetchedEmployeeId,
+                fetchedFirstName,
+                fetchedLastName
+            );
+            firstName = fetchedFirstName;
+            lastName = fetchedLastName;
+            _logger.i('Saved employee data to remember me');
+          }
+
           return fetchedEmployeeId;
         } else {
           _logger.w('No employee found in Salesforce for email: $userEmail');
@@ -594,10 +436,22 @@ class ClockInOutLogic with ChangeNotifier {
           outTime = null;
           _canClockIn = false;
           _canClockOut = true;
-          _startNotificationTimer();
-          _startAutoClockOutTimer();
-          // _startEighteenHourTimer(); // Comment out this line
           notifyListeners();
+
+          // Update remember me status after successful clock in
+          if (firstName != null && lastName != null &&
+              firstName!.isNotEmpty && lastName!.isNotEmpty) {
+            await SharedPrefsUtils.saveRememberMeStatus(
+                currentEmployeeId,
+                firstName!,
+                lastName!
+            );
+            _logger.i('Updated remember me status after clock in');
+          }
+
+          // Start timers after successful clock in
+          _timerLogic.startTimers(inTime!);
+          _logger.i('Started timer logic for clock in');
 
           return {
             'success': true,
@@ -634,10 +488,22 @@ class ClockInOutLogic with ChangeNotifier {
             outTime = DateTime.now(); // Store local time for UI
             _canClockIn = false; // Will be enabled after 18 hours
             _canClockOut = false;
-            _notificationTimer?.cancel();
-            _autoClockOutTimer?.cancel();
-            // _eighteenHourTimer?.cancel(); // You might also want to cancel the timer here if it's running
             notifyListeners();
+
+            // Update remember me status after successful clock out
+            if (firstName != null && lastName != null &&
+                firstName!.isNotEmpty && lastName!.isNotEmpty) {
+              await SharedPrefsUtils.saveRememberMeStatus(
+                  currentEmployeeId,
+                  firstName!,
+                  lastName!
+              );
+              _logger.i('Updated remember me status after clock out');
+            }
+
+            // Stop timers after successful clock out
+            _timerLogic.stopTimers();
+            _logger.i('Stopped timer logic for clock out');
 
             return {
               'success': true,
@@ -671,20 +537,93 @@ class ClockInOutLogic with ChangeNotifier {
     _logger.i('Initializing employee data for email: $email');
 
     try {
+      // Use SharedPrefsUtils to save employee data
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('user_email', email);
       userEmail = email;
 
+      // Clear existing employee data
       employeeId = null;
+      firstName = null;
+      lastName = null;
       await prefs.remove('employee_id');
       await prefs.remove('current_employee_id');
 
       _logger.i('Employee data initialized, getting employee ID...');
-      await _getEmployeeId();
+      final fetchedEmployeeId = await _getEmployeeId();
 
-      _logger.i('Employee data initialization complete');
+      if (fetchedEmployeeId != null) {
+        _logger.i('Employee data initialization complete with ID: $fetchedEmployeeId');
+      } else {
+        _logger.w('Employee data initialization completed but no employee ID found');
+      }
     } catch (e, stackTrace) {
       _logger.e('Error initializing employee data: $e', error: e, stackTrace: stackTrace);
+    }
+  }
+
+  // Method to update clock in/out status from external sources (like timer logic)
+  void updateClockStatus({
+    required ClockStatus status,
+    DateTime? clockInTime,
+    DateTime? clockOutTime,
+    bool? canClockIn,
+    bool? canClockOut,
+  }) {
+    _logger.i('Updating clock status from external source - status: $status, canClockIn: $canClockIn, canClockOut: $canClockOut');
+
+    _status = status;
+    if (clockInTime != null) inTime = clockInTime;
+    if (clockOutTime != null) outTime = clockOutTime;
+    if (canClockIn != null) _canClockIn = canClockIn;
+    if (canClockOut != null) _canClockOut = canClockOut;
+    notifyListeners();
+  }
+
+  // Method to enable clock in (typically called by timer logic after 18 hours)
+  void enableClockIn() {
+    _logger.i('Enabling clock in from external trigger');
+    _canClockIn = true;
+    notifyListeners();
+  }
+
+  // Method to disable clock out (typically called by timer logic during auto clock out)
+  void disableClockOut() {
+    _logger.i('Disabling clock out from external trigger');
+    _canClockOut = false;
+    notifyListeners();
+  }
+
+  // Helper methods to access timer information
+  bool get hasActiveTimers => _timerLogic.hasActiveTimers;
+  bool get isTimerClockIn => _timerLogic.isClockIn;
+  DateTime? get timerClockInTime => _timerLogic.clockInTime;
+  int get notificationCount => _timerLogic.notificationCount;
+
+  // Methods to get remaining times for various timers
+  Duration? getRemainingAutoClockOutTime() => _timerLogic.getRemainingAutoClockOutTime();
+  Duration? getRemainingNotificationTime() => _timerLogic.getRemainingNotificationTime();
+  Duration? getRemaining18HourTime() => _timerLogic.getRemaining18HourTime();
+
+  // Method for testing notifications
+  Future<void> sendTestNotification() => _timerLogic.sendTestNotification();
+
+  // Method to clear remember me data (useful for logout)
+  Future<void> clearRememberMe() async {
+    _logger.i('Clearing remember me data');
+    await SharedPrefsUtils.clearRememberMeData();
+    firstName = null;
+    lastName = null;
+  }
+
+  // Method to manually save remember me data
+  Future<void> saveRememberMe() async {
+    if (employeeId != null && firstName != null && lastName != null &&
+        employeeId!.isNotEmpty && firstName!.isNotEmpty && lastName!.isNotEmpty) {
+      _logger.i('Manually saving remember me data');
+      await SharedPrefsUtils.saveRememberMeStatus(employeeId!, firstName!, lastName!);
+    } else {
+      _logger.w('Cannot save remember me data - missing required information');
     }
   }
 }

@@ -20,6 +20,8 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> {
   String? instanceUrl;
   bool isLoadingAuth = true;
   String? errorMessage;
+  final ScrollController _scrollController = ScrollController();
+
 
   @override
   void initState() {
@@ -170,6 +172,7 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> {
         ],
       ),
       body: SingleChildScrollView(
+        controller: _scrollController,
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,

@@ -238,40 +238,6 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
     );
   }
 
-  // void _onBottomNavTap(int index) {
-  //   setState(() {
-  //     _currentIndex = index;
-  //   });
-  //
-  //   switch (index) {
-  //     case 0:
-  //       Navigator.pushReplacementNamed(context, '/dashboard', arguments: {
-  //         'employeeId': widget.employeeId,
-  //       });
-  //       break;
-  //     case 1:
-  //       break;
-  //     case 2:
-  //       Navigator.pushNamed(context, '/attendance_history', arguments: {
-  //         'employeeId': widget.employeeId,
-  //       }).then((_) {
-  //         setState(() {
-  //           _currentIndex = 1;
-  //         });
-  //       });
-  //       break;
-  //     case 3:
-  //       Navigator.pushNamed(context, '/profile', arguments: {
-  //         'employeeId': widget.employeeId,
-  //       }).then((_) {
-  //         setState(() {
-  //           _currentIndex = 1;
-  //         });
-  //       });
-  //       break;
-  //   }
-  // }
-
   @override
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
@@ -418,7 +384,7 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
               ],
               const SizedBox(height: 32),
               Text(
-                'Description (Optional)',
+                'Description',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
@@ -443,7 +409,7 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
                   maxLines: 4,
                   style: TextStyle(color: textColor),
                   decoration: InputDecoration(
-                    hintText: 'Enter reason for leave (optional)',
+                    hintText: 'Enter reason for leave',
                     hintStyle: TextStyle(color: subtitleColor),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -512,38 +478,6 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
           ),
         ),
       ),
-      extendBody: true,
-    //   bottomNavigationBar: BottomNavigationBar(
-    //     type: BottomNavigationBarType.fixed,
-    //     backgroundColor: cardColor,
-    //     selectedItemColor: const Color(0xFF667EEA),
-    //     unselectedItemColor: isDarkMode ? Colors.grey[500] : Colors.grey[400],
-    //     currentIndex: _currentIndex,
-    //     elevation: 10,
-    //     onTap: _onBottomNavTap,
-    //     items: const [
-    //       BottomNavigationBarItem(
-    //         icon: Icon(Icons.home),
-    //         activeIcon: Icon(Icons.home),
-    //         label: 'Home',
-    //       ),
-    //       BottomNavigationBarItem(
-    //         icon: Icon(Icons.event_available_outlined),
-    //         activeIcon: Icon(Icons.event_available),
-    //         label: 'Leave',
-    //       ),
-    //       BottomNavigationBarItem(
-    //         icon: Icon(Icons.calendar_month),
-    //         activeIcon: Icon(Icons.calendar_month),
-    //         label: 'Attendance',
-    //       ),
-    //       BottomNavigationBarItem(
-    //         icon: Icon(Icons.person_outline),
-    //         activeIcon: Icon(Icons.person),
-    //         label: 'Profile',
-    //       ),
-    //     ],
-    //   ),
     );
   }
 

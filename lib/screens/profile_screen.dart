@@ -6,6 +6,10 @@ import 'package:codmgo2/screens/dashboard_page.dart';
 import 'package:codmgo2/screens/leave_dashboard.dart';
 import 'package:codmgo2/screens/attendence_history.dart';
 import 'package:codmgo2/utils/logout_logic.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
 class ProfilePage extends StatefulWidget {
   final String? employeeId;
@@ -18,24 +22,21 @@ class ProfilePage extends StatefulWidget {
 
 class _ProfilePageState extends State<ProfilePage> {
   late ProfileLogic profileLogic;
+  File? _profileImage;
 
   @override
   void initState() {
     super.initState();
-    // Initialize the ProfileLogic if not already provided
     profileLogic = context.read<ProfileLogic>();
-
-    // Load profile data when the page initializes
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadProfileData();
+      _loadCachedProfileImage();
     });
   }
 
   Future<void> _loadProfileData() async {
     try {
-      // If employeeId is provided, we might need to initialize it
       if (widget.employeeId != null && widget.employeeId!.isNotEmpty) {
-        // Check if we need to validate or set the employee ID
         final isValid = await profileLogic.validateEmployeeExists(widget.employeeId!);
         if (!isValid) {
           if (mounted) {
@@ -49,8 +50,6 @@ class _ProfilePageState extends State<ProfilePage> {
           return;
         }
       }
-
-      // Load the profile data
       await profileLogic.loadProfile();
     } catch (e) {
       debugPrint('Error in _loadProfileData: $e');
@@ -61,6 +60,18 @@ class _ProfilePageState extends State<ProfilePage> {
             backgroundColor: Colors.red,
           ),
         );
+      }
+    }
+  }
+
+  Future<void> _loadCachedProfileImage() async {
+    final prefs = await SharedPreferences.getInstance();
+    final imagePath = prefs.getString('profile_image_path');
+    if (imagePath != null && await File(imagePath).exists()) {
+      if (mounted) {
+        setState(() {
+          _profileImage = File(imagePath);
+        });
       }
     }
   }
@@ -84,24 +95,53 @@ class _ProfilePageState extends State<ProfilePage> {
     return value.toString();
   }
 
+  String _formatAadhar(dynamic value) {
+    if (value == null || value.toString().isEmpty) return 'N/A';
+    return value.toString().replaceAll(RegExp(r'[^0-9]'), '');
+  }
+
   Color _getPerformanceFlagColor(String? flag) {
     if (flag == null || flag.isEmpty) return Colors.grey;
-    switch (flag.toLowerCase()) {
-      case 'excellent':
-        return Colors.green;
-      case 'good':
-        return Colors.blue;
-      case 'average':
-        return Colors.orange;
-      case 'poor':
-        return Colors.red;
-      default:
-        return Colors.yellow;
+    try {
+      if (flag.startsWith('#')) {
+        return Color(int.parse(flag.replaceFirst('#', '0xFF')));
+      }
+      switch (flag.toLowerCase()) {
+        case 'excellent':
+          return Colors.green;
+        case 'good':
+          return Colors.blue;
+        case 'average':
+          return Colors.orange;
+        case 'poor':
+          return Colors.red;
+        default:
+          return Colors.grey;
+      }
+    } catch (e) {
+      return Colors.grey;
+    }
+  }
+
+  Future<void> _pickProfileImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null && mounted) {
+      final imageFile = File(pickedFile.path);
+      setState(() {
+        _profileImage = imageFile;
+      });
+      // Save image path to SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('profile_image_path', imageFile.path);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profile photo updated successfully')),
+      );
     }
   }
 
   void _onBottomNavTap(BuildContext context, int index) {
-    if (index == 3) return; // Already on Profile page
+    if (index == 3) return;
 
     final profileData = context.read<ProfileLogic>().profileData;
     final employeeId = widget.employeeId ?? profileLogic.employeeId ?? '';
@@ -172,25 +212,33 @@ class _ProfilePageState extends State<ProfilePage> {
               onPressed: () => Navigator.pop(context),
             ),
             actions: [
-              IconButton(
-                icon: Icon(Icons.refresh, color: textColor),
-                onPressed: profileLogic.isLoading ? null : _refreshProfile,
-              ),
-              IconButton(
-                icon: Icon(Icons.notifications_outlined, color: textColor),
-                onPressed: () {
-                  // Navigate to notifications page
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Notifications feature coming soon')),
-                  );
-                },
+              Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: TextButton.icon(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Help feature coming soon')),
+                    );
+                  },
+                  icon: Icon(
+                    Icons.help_outline,
+                    color: Colors.green,
+                    size: 24,
+                  ),
+                  label: Text(
+                    'Help',
+                    style: TextStyle(
+                      color: Colors.green,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
           body: profileLogic.isLoading
-              ? const Center(
-            child: CircularProgressIndicator(),
-          )
+              ? const Center(child: CircularProgressIndicator())
               : profileLogic.errorMessage != null
               ? Center(
             child: Padding(
@@ -198,11 +246,7 @@ class _ProfilePageState extends State<ProfilePage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.error_outline,
-                    size: 64,
-                    color: Colors.red,
-                  ),
+                  Icon(Icons.error_outline, size: 64, color: Colors.red),
                   const SizedBox(height: 16),
                   Text(
                     'Error Loading Profile',
@@ -215,10 +259,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   const SizedBox(height: 8),
                   Text(
                     profileLogic.errorMessage!,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: subtitleColor,
-                    ),
+                    style: TextStyle(fontSize: 14, color: subtitleColor),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 16),
@@ -244,11 +285,7 @@ class _ProfilePageState extends State<ProfilePage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  Icons.person_off,
-                  size: 64,
-                  color: subtitleColor,
-                ),
+                Icon(Icons.person_off, size: 64, color: subtitleColor),
                 const SizedBox(height: 16),
                 Text(
                   'No Profile Data',
@@ -261,10 +298,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 8),
                 Text(
                   'Unable to load profile information',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: subtitleColor,
-                  ),
+                  style: TextStyle(fontSize: 14, color: subtitleColor),
                 ),
                 const SizedBox(height: 16),
                 ElevatedButton(
@@ -300,7 +334,9 @@ class _ProfilePageState extends State<ProfilePage> {
                           offset: const Offset(0, 8),
                         ),
                         BoxShadow(
-                          color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.1),
+                          color: isDarkMode
+                              ? Colors.black.withOpacity(0.3)
+                              : Colors.black.withOpacity(0.1),
                           blurRadius: 8,
                           offset: const Offset(0, 4),
                         ),
@@ -309,25 +345,54 @@ class _ProfilePageState extends State<ProfilePage> {
                     child: Column(
                       children: [
                         // Profile Photo
-                        Container(
-                          width: 100,
-                          height: 100,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF667EEA).withOpacity(0.1),
-                            shape: BoxShape.circle,
-                            border: Border.all(color:Colors.white70, width: 3),
-                          ),
-                          child: Icon(
-                            Icons.person,
-                            size: 50,
-                            color:Colors.white70,
+                        GestureDetector(
+                          onTap: _pickProfileImage,
+                          child: Stack(
+                            alignment: Alignment.bottomRight,
+                            children: [
+                              Container(
+                                width: 100,
+                                height: 100,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF667EEA).withOpacity(0.1),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white70, width: 3),
+                                ),
+                                child: _profileImage != null
+                                    ? ClipOval(
+                                  child: Image.file(
+                                    _profileImage!,
+                                    fit: BoxFit.cover,
+                                    width: 100,
+                                    height: 100,
+                                  ),
+                                )
+                                    : Icon(
+                                  Icons.person,
+                                  size: 50,
+                                  color: Colors.white70,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: const BoxDecoration(
+                                  color: Colors.green,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(
+                                  Icons.edit,
+                                  color: Colors.white,
+                                  size: 16,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         const SizedBox(height: 16),
                         // Employee Name
                         Text(
                           '${_formatValue(profileLogic.profileData?['First_Name__c'])} ${_formatValue(profileLogic.profileData?['Last_Name__c'])}',
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: Colors.white,
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
@@ -356,10 +421,13 @@ class _ProfilePageState extends State<ProfilePage> {
                       padding: const EdgeInsets.all(16),
                       margin: const EdgeInsets.only(bottom: 18),
                       decoration: BoxDecoration(
-                        color: _getPerformanceFlagColor(profileLogic.profileData?['Performance_Flag__c']).withOpacity(0.1),
+                        color: _getPerformanceFlagColor(
+                            profileLogic.profileData?['Performance_Flag__c'])
+                            .withOpacity(isDarkMode ? 0.2 : 0.3),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: _getPerformanceFlagColor(profileLogic.profileData?['Performance_Flag__c']),
+                          color: _getPerformanceFlagColor(
+                              profileLogic.profileData?['Performance_Flag__c']),
                           width: 2,
                         ),
                       ),
@@ -368,14 +436,14 @@ class _ProfilePageState extends State<ProfilePage> {
                         children: [
                           Icon(
                             Icons.flag,
-                            color: _getPerformanceFlagColor(profileLogic.profileData?['Performance_Flag__c']),
+                            color: textColor, // Use textColor for consistency
                             size: 24,
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            'Performance Flag : ${_formatValue(profileLogic.profileData?['Performance_Flag__c'])}',
+                            'Performance Flag: ${_formatValue(profileLogic.profileData?['Performance_Flag__c'])}',
                             style: TextStyle(
-                              color: _getPerformanceFlagColor(profileLogic.profileData?['Performance_Flag__c']),
+                              color: textColor, // Use textColor for consistency
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
                             ),
@@ -388,8 +456,10 @@ class _ProfilePageState extends State<ProfilePage> {
                   _buildSection(
                     'Contact Information',
                     [
-                      _buildInfoRow('Phone', _formatValue(profileLogic.profileData?['Phone__c']), Icons.phone, textColor, subtitleColor),
-                      _buildInfoRow('Email', _formatValue(profileLogic.profileData?['Email__c']), Icons.email, textColor, subtitleColor),
+                      _buildInfoRow('Phone', _formatValue(profileLogic.profileData?['Phone__c']),
+                          Icons.phone, textColor, subtitleColor),
+                      _buildInfoRow('Email', _formatValue(profileLogic.profileData?['Email__c']),
+                          Icons.email, textColor, subtitleColor),
                     ],
                     cardColor,
                     isDarkMode,
@@ -402,9 +472,15 @@ class _ProfilePageState extends State<ProfilePage> {
                   _buildSection(
                     'Banking Information',
                     [
-                      _buildInfoRow('Bank Name', _formatValue(profileLogic.profileData?['Bank_Name__c']), Icons.account_balance, textColor, subtitleColor),
-                      _buildInfoRow('IFSC Code', _formatValue(profileLogic.profileData?['IFSC_Code__c']), Icons.code, textColor, subtitleColor),
-                      _buildInfoRow('Account Number', _formatValue(profileLogic.profileData?['Bank_Account_Number__c']), Icons.credit_card, textColor, subtitleColor),
+                      _buildInfoRow('Bank Name',
+                          _formatValue(profileLogic.profileData?['Bank_Name__c']),
+                          Icons.account_balance, textColor, subtitleColor),
+                      _buildInfoRow('IFSC Code',
+                          _formatValue(profileLogic.profileData?['IFSC_Code__c']),
+                          Icons.code, textColor, subtitleColor),
+                      _buildInfoRow('Account Number',
+                          _formatValue(profileLogic.profileData?['Bank_Account_Number__c']),
+                          Icons.credit_card, textColor, subtitleColor),
                     ],
                     cardColor,
                     isDarkMode,
@@ -417,10 +493,18 @@ class _ProfilePageState extends State<ProfilePage> {
                   _buildSection(
                     'Personal Information',
                     [
-                      _buildInfoRow('Aadhar Number', _formatValue(profileLogic.profileData?['Aadhar_Number__c']), Icons.badge, textColor, subtitleColor),
-                      _buildInfoRow('PAN Card', _formatValue(profileLogic.profileData?['PAN_Card__c']), Icons.credit_card_outlined, textColor, subtitleColor),
-                      _buildInfoRow('Date of Birth', _formatDate(profileLogic.profileData?['Date_of_Birth__c']), Icons.cake, textColor, subtitleColor),
-                      _buildInfoRow('Work Location', _formatValue(profileLogic.profileData?['Work_Location__c']), Icons.location_on, textColor, subtitleColor),
+                      _buildInfoRow('Aadhar Number',
+                          _formatAadhar(profileLogic.profileData?['Aadhar_Number__c']),
+                          Icons.badge, textColor, subtitleColor),
+                      _buildInfoRow('PAN Card',
+                          _formatValue(profileLogic.profileData?['PAN_Card__c']),
+                          Icons.credit_card_outlined, textColor, subtitleColor),
+                      _buildInfoRow('Date of Birth',
+                          _formatDate(profileLogic.profileData?['Date_of_Birth__c']),
+                          Icons.cake, textColor, subtitleColor),
+                      _buildInfoRow('Work Location',
+                          _formatValue(profileLogic.profileData?['Work_Location__c']),
+                          Icons.location_on, textColor, subtitleColor),
                     ],
                     cardColor,
                     isDarkMode,
@@ -433,10 +517,18 @@ class _ProfilePageState extends State<ProfilePage> {
                   _buildSection(
                     'Employment Information',
                     [
-                      _buildInfoRow('Joining Date', _formatDate(profileLogic.profileData?['Joining_Date__c']), Icons.date_range, textColor, subtitleColor),
-                      _buildInfoRow('Reporting Manager', _formatValue(profileLogic.profileData?['Reporting_Manager_Formula__c']), Icons.supervisor_account, textColor, subtitleColor),
-                      _buildInfoRow('Annual Review Date', _formatDate(profileLogic.profileData?['Annual_Review_Date__c']), Icons.event_note, textColor, subtitleColor),
-                      _buildInfoRow('Department', _formatValue(profileLogic.profileData?['Department__c']), Icons.business, textColor, subtitleColor),
+                      _buildInfoRow('Joining Date',
+                          _formatDate(profileLogic.profileData?['Joining_Date__c']),
+                          Icons.date_range, textColor, subtitleColor),
+                      _buildInfoRow('Reporting Manager',
+                          _formatValue(profileLogic.profileData?['Reporting_Manager_Formula__c']),
+                          Icons.supervisor_account, textColor, subtitleColor),
+                      _buildInfoRow('Annual Review Date',
+                          _formatDate(profileLogic.profileData?['Annual_Review_Date__c']),
+                          Icons.event_note, textColor, subtitleColor),
+                      _buildInfoRow('Department',
+                          _formatValue(profileLogic.profileData?['Department__c']),
+                          Icons.business, textColor, subtitleColor),
                     ],
                     cardColor,
                     isDarkMode,
@@ -459,8 +551,8 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                         elevation: 4,
                         shadowColor: Colors.transparent,
-                        side: BorderSide(
-                          color: const Color(0xFF0000), // Border same as button color
+                        side: const BorderSide(
+                          color: Color(0xFF0000),
                           width: 1,
                         ),
                       ),
@@ -484,7 +576,7 @@ class _ProfilePageState extends State<ProfilePage> {
             backgroundColor: cardColor,
             selectedItemColor: const Color(0xFF667EEA),
             unselectedItemColor: isDarkMode ? Colors.grey[500] : Colors.grey[400],
-            currentIndex: 3, // Profile tab selected
+            currentIndex: 3,
             elevation: 10,
             onTap: (index) => _onBottomNavTap(context, index),
             items: const [
