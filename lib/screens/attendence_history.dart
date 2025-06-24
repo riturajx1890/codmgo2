@@ -302,7 +302,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.notifications_outlined, color: textColor),
+            icon: Icon(Icons.help_outline, color: Colors.green),
             onPressed: () {},
           ),
         ],

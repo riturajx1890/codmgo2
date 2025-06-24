@@ -1,10 +1,14 @@
 import 'package:codmgo2/screens/profile_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:codmgo2/screens/apply_leave.dart';
 import 'package:codmgo2/screens/dashboard_page.dart';
 import 'package:codmgo2/screens/attendence_history.dart';
 import 'package:codmgo2/services/profile_service.dart';
+import 'package:codmgo2/services/leave_api_service.dart';
+import 'package:codmgo2/utils/upcoming_leaves.dart';
+import 'package:codmgo2/utils/shared_prefs_utils.dart';
 
 class LeaveDashboardPage extends StatefulWidget {
   final String employeeId;
@@ -15,46 +19,172 @@ class LeaveDashboardPage extends StatefulWidget {
   State<LeaveDashboardPage> createState() => _LeaveDashboardPageState();
 }
 
-class _LeaveDashboardPageState extends State<LeaveDashboardPage> {
+class _LeaveDashboardPageState extends State<LeaveDashboardPage> with TickerProviderStateMixin {
   String? accessToken;
   String? instanceUrl;
+  String? employeeId;
+  String? firstName;
+  String? lastName;
+  String? email;
   bool isLoadingAuth = true;
+  bool isLoadingLeaveData = true;
   String? errorMessage;
   final ScrollController _scrollController = ScrollController();
 
+  // Leave data
+  Map<String, dynamic>? leaveStatistics;
+  Map<String, dynamic>? todayLeaveStatus;
+  int leavesTaken = 0;
+  int leaveBalance = 0;
+
+  // Animation controllers
+  late AnimationController scaleAnimationController;
+  late Animation<double> scaleAnimation;
 
   @override
   void initState() {
     super.initState();
-    _loadAuthData();
+    _initializeAnimations();
+    _loadUserDataAndAuth();
   }
 
-  Future<void> _loadAuthData() async {
+  void _initializeAnimations() {
+    scaleAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+    scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
+      CurvedAnimation(parent: scaleAnimationController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    scaleAnimationController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadUserDataAndAuth() async {
     setState(() {
       isLoadingAuth = true;
       errorMessage = null;
     });
 
     try {
-      final authData = await ProfileService.getAuthData();
-      if (authData != null) {
+      // Get user data from SharedPrefs (remember me or current session)
+      final rememberedData = await SharedPrefsUtils.checkRememberMeStatus();
+
+      if (rememberedData != null) {
+        // Use remembered data
         setState(() {
-          accessToken = authData['access_token'];
-          instanceUrl = authData['instance_url'];
+          employeeId = rememberedData['employee_id'];
+          firstName = rememberedData['first_name'];
+          lastName = rememberedData['last_name'];
+          email = rememberedData['email'];
+        });
+      } else {
+        // Fallback to passed employeeId
+        setState(() {
+          employeeId = widget.employeeId;
+          firstName = '';
+          lastName = '';
+        });
+      }
+
+      // Get valid credentials (will refresh if needed)
+      final credentials = await SharedPrefsUtils.getSalesforceCredentials();
+
+      if (credentials != null) {
+        setState(() {
+          accessToken = credentials['access_token'];
+          instanceUrl = credentials['instance_url'];
           isLoadingAuth = false;
         });
+        await _loadLeaveData();
       } else {
         setState(() {
           isLoadingAuth = false;
-          errorMessage = 'Failed to retrieve authentication data';
+          errorMessage = 'Failed to retrieve authentication credentials. Please login again.';
         });
       }
     } catch (e) {
       setState(() {
         isLoadingAuth = false;
-        errorMessage = 'Error loading authentication data: $e';
+        errorMessage = 'Error loading user data: $e';
       });
     }
+  }
+
+  Future<void> _loadLeaveData() async {
+    setState(() {
+      isLoadingLeaveData = true;
+      errorMessage = null;
+    });
+
+    try {
+      // Load leave statistics and today's status in parallel
+      final results = await Future.wait([
+        LeaveApiService.getLeaveStatistics(),
+        LeaveApiService.getTodayLeaveStatus(),
+        LeaveApiService.getEmployeeLeaves(),
+      ]);
+
+      final statistics = results[0] as Map<String, dynamic>?;
+      final todayStatus = results[1] as Map<String, dynamic>?;
+      final allLeaves = results[2] as List<Map<String, dynamic>>?;
+
+      if (statistics != null) {
+        // Calculate leaves taken (sum of days for approved leaves)
+        int totalDaysTaken = 0;
+        if (allLeaves != null) {
+          for (var leave in allLeaves) {
+            if (leave['Status__c'] == 'Approved') {
+              final startDate = DateTime.tryParse(leave['Start_Date__c'] ?? '');
+              final endDate = DateTime.tryParse(leave['End_Date__c'] ?? '');
+              if (startDate != null && endDate != null) {
+                // Add 1 to include both start and end dates
+                totalDaysTaken += endDate.difference(startDate).inDays + 1;
+              }
+            }
+          }
+        }
+
+        // Handle different data types from backend (double/int/string)
+        final totalLeaveBalance = _parseToInt(statistics['total_leave_balance']);
+
+        setState(() {
+          leaveStatistics = statistics;
+          todayLeaveStatus = todayStatus;
+          leavesTaken = totalDaysTaken;
+          leaveBalance = totalLeaveBalance;
+          isLoadingLeaveData = false;
+        });
+      } else {
+        setState(() {
+          isLoadingLeaveData = false;
+          errorMessage = 'Failed to load leave data. Please try again.';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        isLoadingLeaveData = false;
+        errorMessage = 'Error loading leave data: $e';
+      });
+    }
+  }
+
+  // Helper method to safely parse various numeric types to int
+  int _parseToInt(dynamic value) {
+    if (value == null) return 0;
+
+    if (value is int) return value;
+    if (value is double) return value.round();
+    if (value is String) {
+      final parsed = double.tryParse(value);
+      return parsed?.round() ?? 0;
+    }
+
+    return 0;
   }
 
   void _onBottomNavTap(BuildContext context, int index) {
@@ -66,9 +196,9 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> {
           context,
           MaterialPageRoute(
             builder: (context) => DashboardPage(
-              employeeId: widget.employeeId,
-              firstName: '',
-              lastName: '',
+              employeeId: employeeId ?? widget.employeeId,
+              firstName: firstName ?? '',
+              lastName: lastName ?? '',
             ),
           ),
         );
@@ -77,7 +207,7 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => AttendanceHistoryPage(employeeId: widget.employeeId),
+            builder: (context) => AttendanceHistoryPage(employeeId: employeeId ?? widget.employeeId),
           ),
         );
         break;
@@ -86,21 +216,30 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Authentication data not available. Please try again.')),
           );
-          _loadAuthData(); // Retry loading auth data
+          _loadUserDataAndAuth(); // Retry loading auth data
           return;
         }
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => ProfilePage(
-              // employeeId: widget.employeeId,
-              // accessToken: accessToken!,
-              // instanceUrl: instanceUrl!,
-            ),
+            builder: (context) => ProfilePage(),
           ),
         );
         break;
     }
+  }
+
+  Future<void> _handleRefresh() async {
+    await _loadUserDataAndAuth();
+  }
+
+  String _getWelcomeMessage() {
+    if (firstName != null && firstName!.isNotEmpty) {
+      return 'Welcome Back, $firstName!';
+    } else if (employeeId != null) {
+      return 'Welcome Back!';
+    }
+    return 'Welcome!';
   }
 
   @override
@@ -111,10 +250,22 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> {
     final textColor = isDarkMode ? Colors.white : const Color(0xFF2D3748);
     final subtitleColor = isDarkMode ? Colors.white70 : Colors.grey[600];
 
-    if (isLoadingAuth) {
+    if (isLoadingAuth || isLoadingLeaveData) {
       return Scaffold(
         backgroundColor: backgroundColor,
-        body: const Center(child: CircularProgressIndicator()),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text(
+                isLoadingAuth ? 'Loading user data...' : 'Loading leave information...',
+                style: TextStyle(color: textColor),
+              ),
+            ],
+          ),
+        ),
       );
     }
 
@@ -127,14 +278,17 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> {
             children: [
               const Icon(Icons.error_outline, size: 64, color: Colors.red),
               const SizedBox(height: 16),
-              Text(
-                errorMessage!,
-                style: TextStyle(color: textColor),
-                textAlign: TextAlign.center,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  errorMessage!,
+                  style: TextStyle(color: textColor),
+                  textAlign: TextAlign.center,
+                ),
               ),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: _loadAuthData,
+                onPressed: _handleRefresh,
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 ),
@@ -166,284 +320,226 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> {
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.notifications_outlined, color: textColor),
+            icon: Icon(Icons.help_outline, color: Colors.green),
             onPressed: () {},
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        controller: _scrollController,
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Welcome Section
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+      body: RefreshIndicator(
+        onRefresh: _handleRefresh,
+        child: SingleChildScrollView(
+          controller: _scrollController,
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Welcome Section
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF667EEA).withOpacity(0.3),
+                      blurRadius: 15,
+                      offset: const Offset(0, 8),
+                    ),
+                    BoxShadow(
+                      color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF667EEA).withOpacity(0.3),
-                    blurRadius: 15,
-                    offset: const Offset(0, 8),
-                  ),
-                  BoxShadow(
-                    color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.1),
-                    blurRadius: 8,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Welcome Back!',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Manage your leaves efficiently',
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.9),
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      _buildStatCard('Total Leaves', '12', Icons.calendar_today),
-                      const SizedBox(width: 16),
-                      _buildStatCard('Used', '5', Icons.check_circle),
-                      const SizedBox(width: 16),
-                      _buildStatCard('Remaining', '7', Icons.access_time),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 18),
-
-            // Today's Status Section
-            Text(
-              'Today\'s Status',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: textColor,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: cardColor,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.08),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                  BoxShadow(
-                    color: isDarkMode ? Colors.black.withOpacity(0.1) : Colors.black.withOpacity(0.03),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF667EEA).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.today,
-                      color: Color(0xFF667EEA),
-                      size: 30,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Leave Status',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: textColor,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'You are not on leave today',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: subtitleColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 18),
-
-            // Quick Actions Section
-            Text(
-              'Quick Actions',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: textColor,
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // First Row
-            Row(
-              children: [
-                Expanded(
-                  child: _buildActionCard(
-                    context,
-                    'Apply Leave',
-                    Icons.add_circle_outline,
-                    const Color(0xFF667EEA),
-                    isDarkMode,
-                        () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => ApplyLeavePage(employeeId: widget.employeeId)),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildActionCard(
-                    context,
-                    'Leave History',
-                    Icons.history,
-                    const Color(0xFF9F7AEA),
-                    isDarkMode,
-                        () {},
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 18),
-
-            // Upcoming Leave Card
-            Text(
-              'Upcoming Leaves',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: textColor,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: cardColor,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.08),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                  BoxShadow(
-                    color: isDarkMode ? Colors.black.withOpacity(0.1) : Colors.black.withOpacity(0.03),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF667EEA).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(
-                      Icons.event_available,
-                      color: Color(0xFF667EEA),
-                      size: 30,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Casual Leave',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: textColor,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          DateFormat('EEEE, MMM dd, yyyy').format(DateTime.now().add(const Duration(days: 3))),
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: subtitleColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.green.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      'Approved',
-                      style: TextStyle(
-                        color: Colors.green,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _getWelcomeMessage(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Manage your leaves efficiently',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.9),
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        _buildClockStatCard('Leaves Taken', leavesTaken.toString(), Icons.check_circle),
+                        const SizedBox(width: 16),
+                        _buildClockStatCard('Leave Balance', leaveBalance.toString(), Icons.access_time),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 18),
+
+              // Today's Status Section
+              Text(
+                'Today\'s Status',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: cardColor,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.08),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                    BoxShadow(
+                      color: isDarkMode ? Colors.black.withOpacity(0.1) : Colors.black.withOpacity(0.03),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        color: (todayLeaveStatus?['is_on_leave'] == true)
+                            ? Colors.orange.withOpacity(0.1)
+                            : const Color(0xFF667EEA).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        (todayLeaveStatus?['is_on_leave'] == true) ? Icons.event_busy : Icons.today,
+                        color: (todayLeaveStatus?['is_on_leave'] == true)
+                            ? Colors.orange
+                            : const Color(0xFF667EEA),
+                        size: 30,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Leave Status',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: textColor,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            (todayLeaveStatus?['is_on_leave'] == true)
+                                ? 'You are on ${todayLeaveStatus?['leave_details']?['Leave_Type__c'] ?? 'leave'} today'
+                                : 'You are not on leave today',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: subtitleColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 18),
+
+              // Quick Actions Section
+              Text(
+                'Quick Actions',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: textColor,
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // First Row
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildActionCard(
+                      context,
+                      'Apply Leave',
+                      Icons.add_circle_outline,
+                      const Color(0xFF667EEA),
+                      isDarkMode,
+                          () {
+                        // Add haptic feedback
+                        HapticFeedback.lightImpact();
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ApplyLeavePage(employeeId: employeeId ?? widget.employeeId),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildActionCard(
+                      context,
+                      'Leave History',
+                      Icons.history,
+                      const Color(0xFF9F7AEA),
+                      isDarkMode,
+                          () {
+                        // Add haptic feedback
+                        HapticFeedback.lightImpact();
+                        // TODO: Navigate to Leave History page when implemented
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Leave History feature coming soon!')),
+                        );
+                      },
+                    ),
                   ),
                 ],
               ),
-            ),
 
-            const SizedBox(height: 24),
-          ],
+              const SizedBox(height: 18),
+
+              // Upcoming Leaves Section
+              UpcomingLeaves(
+                textColor: textColor,
+                cardColor: cardColor,
+                isDarkMode: isDarkMode,
+                scaleAnimation: scaleAnimation,
+                scaleAnimationController: scaleAnimationController,
+                employeeId: employeeId ?? widget.employeeId,
+              ),
+
+              const SizedBox(height: 24),
+            ],
+          ),
         ),
       ),
       bottomNavigationBar: BottomNavigationBar(
@@ -480,7 +576,7 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> {
     );
   }
 
-  Widget _buildStatCard(String title, String value, IconData icon) {
+  Widget _buildClockStatCard(String title, String value, IconData icon) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(12),
@@ -491,21 +587,30 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: Colors.white, size: 20),
+            Row(
+              children: [
+                Icon(icon, color: Colors.white, size: 18),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.9),
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
             Text(
               value,
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 20,
+                fontSize: 24,
                 fontWeight: FontWeight.bold,
-              ),
-            ),
-            Text(
-              title,
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.8),
-                fontSize: 12,
               ),
             ),
           ],

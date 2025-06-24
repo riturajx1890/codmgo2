@@ -34,7 +34,7 @@ class ClockInOutController with ChangeNotifier {
   // Public methods that delegate to logic
   Future<void> initializeEmployeeData(String email) async {
     _logger.i('Initializing employee data for email: $email');
-    await _logic.initializeEmployeeData(email);
+    await _logic.initializeEmployeeData(email: email);
   }
 
   Future<void> showClockDialog(

@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:codmgo2/services/clock_in_out_service.dart';
 import 'package:codmgo2/services/salesforce_api_service.dart';
-import 'package:codmgo2/utils/shared_prefs_utils.dart'; // Import the SharedPrefsUtils
+import 'package:codmgo2/utils/shared_prefs_utils.dart';
 import 'package:logger/logger.dart';
 import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'package:codmgo2/utils/location_logic.dart';
-import 'timer_notification_logic.dart'; // Import the timer logic
+import 'timer_notification_logic.dart';
 
 enum ClockStatus { unmarked, clockedIn, clockedOut }
 
@@ -29,8 +27,6 @@ class ClockInOutLogic with ChangeNotifier {
   String? firstName;
   String? lastName;
 
-  final LocationLogic _locationLogic = LocationLogic();
-
   // Timer logic integration
   late final TimerNotificationLogic _timerLogic;
 
@@ -38,7 +34,7 @@ class ClockInOutLogic with ChangeNotifier {
   ClockStatus get status => _status;
   bool get canClockIn => _canClockIn;
   bool get canClockOut => _canClockOut;
-  TimerNotificationLogic get timerLogic => _timerLogic; // Expose timer logic for external access
+  TimerNotificationLogic get timerLogic => _timerLogic;
 
   String get statusText {
     switch (_status) {
@@ -127,14 +123,13 @@ class ClockInOutLogic with ChangeNotifier {
     _logger.i('Loading today\'s status on controller initialization');
 
     await _loadCredentials();
-    final currentEmployeeId = await _getEmployeeId();
 
-    if (currentEmployeeId != null && accessToken != null && instanceUrl != null) {
+    if (employeeId != null && accessToken != null && instanceUrl != null) {
       try {
         final todayAttendance = await ClockInOutService.getTodayAttendance(
           accessToken!,
           instanceUrl!,
-          currentEmployeeId,
+          employeeId!,
         );
 
         if (todayAttendance != null) {
@@ -177,150 +172,63 @@ class ClockInOutLogic with ChangeNotifier {
   }
 
   Future<void> _loadCredentials() async {
-    _logger.i('Loading credentials from SharedPreferences');
+    _logger.i('Loading credentials from SharedPrefsUtils');
 
     try {
-      // First check if remember me is valid and load data from there
-      final rememberMeData = await SharedPrefsUtils.checkRememberMeStatus();
+      // Get valid credentials with employee ID using SharedPrefsUtils
+      final credentialsWithId = await SharedPrefsUtils.getValidCredentialsWithEmployeeId();
 
-      if (rememberMeData != null) {
-        _logger.i('Remember me data found, using cached employee data');
-        employeeId = rememberMeData['employee_id'];
-        firstName = rememberMeData['first_name'];
-        lastName = rememberMeData['last_name'];
+      if (credentialsWithId != null) {
+        accessToken = credentialsWithId['access_token'];
+        instanceUrl = credentialsWithId['instance_url'];
+        employeeId = credentialsWithId['employee_id'];
 
-        // Load other credentials from SharedPreferences
-        final employeeData = await SharedPrefsUtils.getEmployeeDataFromPrefs();
-        accessToken = employeeData['access_token'];
-        instanceUrl = employeeData['instance_url'];
-        userEmail = employeeData['user_email'];
+        _logger.i('Credentials loaded successfully - employeeId: $employeeId');
 
-        _logger.i('Credentials loaded from remember me - employeeId: $employeeId, firstName: $firstName, lastName: $lastName');
-        _logger.i('Additional credentials - accessToken: ${accessToken != null ? "present" : "null"}, instanceUrl: ${instanceUrl != null ? "present" : "null"}, userEmail: $userEmail');
+        // Load additional user data from remember me or stored preferences
+        final rememberMeData = await SharedPrefsUtils.checkRememberMeStatus();
+        if (rememberMeData != null) {
+          firstName = rememberMeData['first_name'];
+          lastName = rememberMeData['last_name'];
+          userEmail = rememberMeData['email'];
+          _logger.i('User data loaded from remember me');
+        }
+
         return;
       }
 
-      // If no remember me data, fall back to regular SharedPreferences loading
-      _logger.i('No remember me data found, loading from regular SharedPreferences');
-      final employeeData = await SharedPrefsUtils.getEmployeeDataFromPrefs();
+      // Fallback: try to get credentials separately
+      final salesforceCredentials = await SharedPrefsUtils.getSalesforceCredentials();
+      if (salesforceCredentials != null) {
+        accessToken = salesforceCredentials['access_token'];
+        instanceUrl = salesforceCredentials['instance_url'];
+      }
 
-      accessToken = employeeData['access_token'];
-      instanceUrl = employeeData['instance_url'];
-      employeeId = employeeData['employee_id'];
-      userEmail = employeeData['user_email'];
-      firstName = employeeData['first_name'];
-      lastName = employeeData['last_name'];
+      // Try to get employee ID
+      employeeId = await SharedPrefsUtils.getCurrentEmployeeId();
 
-      _logger.i('Credentials loaded from SharedPreferences - accessToken: ${accessToken != null ? "present" : "null"}, instanceUrl: ${instanceUrl != null ? "present" : "null"}, employeeId: $employeeId, userEmail: $userEmail');
+      // Load user data from remember me
+      final rememberMeData = await SharedPrefsUtils.checkRememberMeStatus();
+      if (rememberMeData != null) {
+        firstName = rememberMeData['first_name'];
+        lastName = rememberMeData['last_name'];
+        userEmail = rememberMeData['email'];
+        // If employee ID is missing but available in remember me, use it
+        if (employeeId == null) {
+          employeeId = rememberMeData['employee_id'];
+        }
+      }
+
+      _logger.i('Credentials loaded - accessToken: ${accessToken != null ? "present" : "null"}, instanceUrl: ${instanceUrl != null ? "present" : "null"}, employeeId: $employeeId');
     } catch (e, stackTrace) {
       _logger.e('Error loading credentials: $e', error: e, stackTrace: stackTrace);
     }
   }
 
-  Future<void> _saveEmployeeId(String empId) async {
-    _logger.i('Saving employee ID: $empId');
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('employee_id', empId);
-      await prefs.setString('current_employee_id', empId);
-      employeeId = empId;
-
-      _logger.i('Employee ID saved successfully');
-    } catch (e, stackTrace) {
-      _logger.e('Error saving employee ID: $e', error: e, stackTrace: stackTrace);
-    }
-  }
-
-  Future<String?> _getEmployeeId() async {
-    _logger.i('Getting employee ID - current employeeId: $employeeId');
-
-    if (employeeId != null && employeeId!.isNotEmpty) {
-      _logger.i('Employee ID already available: $employeeId');
-      return employeeId;
-    }
-
-    try {
-      // First check remember me status
-      final rememberMeData = await SharedPrefsUtils.checkRememberMeStatus();
-
-      if (rememberMeData != null && rememberMeData['employee_id'] != null) {
-        final rememberMeEmployeeId = rememberMeData['employee_id']!;
-        _logger.i('Employee ID found in remember me data: $rememberMeEmployeeId');
-        employeeId = rememberMeEmployeeId;
-        firstName = rememberMeData['first_name'];
-        lastName = rememberMeData['last_name'];
-        return employeeId;
-      }
-
-      // If no remember me data, check regular SharedPreferences
-      final employeeData = await SharedPrefsUtils.getEmployeeDataFromPrefs();
-      final storedEmployeeId = employeeData['employee_id'];
-
-      if (storedEmployeeId != null && storedEmployeeId.isNotEmpty) {
-        _logger.i('Employee ID found in SharedPreferences: $storedEmployeeId');
-        employeeId = storedEmployeeId;
-        return employeeId;
-      }
-
-      _logger.w('No employee ID found in SharedPreferences or remember me data');
-    } catch (e, stackTrace) {
-      _logger.e('Error loading employee ID: $e', error: e, stackTrace: stackTrace);
-    }
-
-    // If still no employee ID, try to fetch from Salesforce
-    if (userEmail != null && userEmail!.isNotEmpty &&
-        accessToken != null && instanceUrl != null) {
-      _logger.i('Attempting to fetch employee from Salesforce using email: $userEmail');
-
-      try {
-        final employee = await SalesforceApiService.getEmployeeByEmail(
-          accessToken!,
-          instanceUrl!,
-          userEmail!,
-        );
-
-        if (employee != null && employee['Id'] != null) {
-          final fetchedEmployeeId = employee['Id'].toString();
-          final fetchedFirstName = employee['First_Name__c']?.toString() ?? '';
-          final fetchedLastName = employee['Last_Name__c']?.toString() ?? '';
-
-          _logger.i('Employee fetched from Salesforce: $fetchedEmployeeId, $fetchedFirstName $fetchedLastName');
-
-          // Save to both regular prefs and remember me if first/last names are available
-          await _saveEmployeeId(fetchedEmployeeId);
-
-          if (fetchedFirstName.isNotEmpty && fetchedLastName.isNotEmpty) {
-            await SharedPrefsUtils.saveRememberMeStatus(
-                fetchedEmployeeId,
-                fetchedFirstName,
-                fetchedLastName
-            );
-            firstName = fetchedFirstName;
-            lastName = fetchedLastName;
-            _logger.i('Saved employee data to remember me');
-          }
-
-          return fetchedEmployeeId;
-        } else {
-          _logger.w('No employee found in Salesforce for email: $userEmail');
-        }
-      } catch (e, stackTrace) {
-        _logger.e('Error fetching employee from Salesforce: $e', error: e, stackTrace: stackTrace);
-      }
-    } else {
-      _logger.w('Cannot fetch employee from Salesforce - missing required data: userEmail: $userEmail, accessToken: ${accessToken != null}, instanceUrl: ${instanceUrl != null}');
-    }
-
-    _logger.e('Failed to get employee ID from all sources');
-    return null;
-  }
-
   Future<bool> checkIfAlreadyClockedInToday() async {
     await _loadCredentials();
-    final currentEmployeeId = await _getEmployeeId();
 
-    if (currentEmployeeId == null || accessToken == null || instanceUrl == null) {
+    if (employeeId == null || accessToken == null || instanceUrl == null) {
       return false;
     }
 
@@ -328,7 +236,7 @@ class ClockInOutLogic with ChangeNotifier {
       final todayAttendance = await ClockInOutService.getTodayAttendance(
         accessToken!,
         instanceUrl!,
-        currentEmployeeId,
+        employeeId!,
       );
 
       return todayAttendance != null && todayAttendance['Out_Time__c'] == null;
@@ -340,9 +248,8 @@ class ClockInOutLogic with ChangeNotifier {
 
   Future<bool> checkIfAlreadyClockedOutToday() async {
     await _loadCredentials();
-    final currentEmployeeId = await _getEmployeeId();
 
-    if (currentEmployeeId == null || accessToken == null || instanceUrl == null) {
+    if (employeeId == null || accessToken == null || instanceUrl == null) {
       return false;
     }
 
@@ -350,7 +257,7 @@ class ClockInOutLogic with ChangeNotifier {
       final todayAttendance = await ClockInOutService.getTodayAttendance(
         accessToken!,
         instanceUrl!,
-        currentEmployeeId,
+        employeeId!,
       );
 
       return todayAttendance != null && todayAttendance['Out_Time__c'] != null;
@@ -358,13 +265,6 @@ class ClockInOutLogic with ChangeNotifier {
       _logger.e('Error checking today\'s clock out status: $e', error: e, stackTrace: stackTrace);
       return false;
     }
-  }
-
-  bool _isToday(DateTime dateTime) {
-    final now = DateTime.now();
-    return dateTime.year == now.year &&
-        dateTime.month == now.month &&
-        dateTime.day == now.day;
   }
 
   Future<Map<String, dynamic>> attemptClockInOut({required bool isClockIn}) async {
@@ -379,16 +279,7 @@ class ClockInOutLogic with ChangeNotifier {
       };
     }
 
-    final locationResult = await _locationLogic.isWithinRadius();
-    if (!locationResult['isInRadius']) {
-      _logger.w('Location check failed: ${locationResult['message']}');
-      return {
-        'success': false,
-        'message': locationResult['message'],
-      };
-    }
-    _logger.i('Location check passed');
-
+    // Load credentials from SharedPrefsUtils
     await _loadCredentials();
 
     if (accessToken == null) {
@@ -407,9 +298,7 @@ class ClockInOutLogic with ChangeNotifier {
       };
     }
 
-    _logger.i('Getting employee ID...');
-    final currentEmployeeId = await _getEmployeeId();
-    if (currentEmployeeId == null || currentEmployeeId.isEmpty) {
+    if (employeeId == null || employeeId!.isEmpty) {
       _logger.e('Employee ID is null or empty');
       return {
         'success': false,
@@ -417,7 +306,7 @@ class ClockInOutLogic with ChangeNotifier {
       };
     }
 
-    _logger.i('Using employee ID: $currentEmployeeId');
+    _logger.i('Using employee ID: $employeeId');
 
     try {
       if (isClockIn) {
@@ -425,7 +314,7 @@ class ClockInOutLogic with ChangeNotifier {
         final recordId = await ClockInOutService.clockIn(
           accessToken!,
           instanceUrl!,
-          currentEmployeeId,
+          employeeId!,
           DateTime.now().toUtc(), // Send UTC time to Salesforce
         );
 
@@ -442,9 +331,10 @@ class ClockInOutLogic with ChangeNotifier {
           if (firstName != null && lastName != null &&
               firstName!.isNotEmpty && lastName!.isNotEmpty) {
             await SharedPrefsUtils.saveRememberMeStatus(
-                currentEmployeeId,
+                employeeId!,
                 firstName!,
-                lastName!
+                lastName!,
+                email: userEmail
             );
             _logger.i('Updated remember me status after clock in');
           }
@@ -470,7 +360,7 @@ class ClockInOutLogic with ChangeNotifier {
         final todayAttendance = await ClockInOutService.getTodayAttendance(
           accessToken!,
           instanceUrl!,
-          currentEmployeeId,
+          employeeId!,
         );
 
         if (todayAttendance != null && todayAttendance['Id'] != null) {
@@ -494,9 +384,10 @@ class ClockInOutLogic with ChangeNotifier {
             if (firstName != null && lastName != null &&
                 firstName!.isNotEmpty && lastName!.isNotEmpty) {
               await SharedPrefsUtils.saveRememberMeStatus(
-                  currentEmployeeId,
+                  employeeId!,
                   firstName!,
-                  lastName!
+                  lastName!,
+                  email: userEmail
               );
               _logger.i('Updated remember me status after clock out');
             }
@@ -533,30 +424,62 @@ class ClockInOutLogic with ChangeNotifier {
     }
   }
 
-  Future<void> initializeEmployeeData(String email) async {
-    _logger.i('Initializing employee data for email: $email');
+  Future<void> initializeEmployeeData({String? email}) async {
+    _logger.i('Initializing employee data${email != null ? ' for email: $email' : ''}');
 
     try {
-      // Use SharedPrefsUtils to save employee data
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('user_email', email);
-      userEmail = email;
-
-      // Clear existing employee data
-      employeeId = null;
-      firstName = null;
-      lastName = null;
-      await prefs.remove('employee_id');
-      await prefs.remove('current_employee_id');
-
-      _logger.i('Employee data initialized, getting employee ID...');
-      final fetchedEmployeeId = await _getEmployeeId();
-
-      if (fetchedEmployeeId != null) {
-        _logger.i('Employee data initialization complete with ID: $fetchedEmployeeId');
-      } else {
-        _logger.w('Employee data initialization completed but no employee ID found');
+      if (email != null) {
+        userEmail = email;
       }
+
+      // Load all credentials using SharedPrefsUtils
+      await _loadCredentials();
+
+      // If we still don't have employee ID and we have email and Salesforce credentials,
+      // try to fetch from Salesforce
+      if (employeeId == null && userEmail != null && userEmail!.isNotEmpty &&
+          accessToken != null && instanceUrl != null) {
+        _logger.i('Attempting to fetch employee from Salesforce using email: $userEmail');
+
+        try {
+          final employee = await SalesforceApiService.getEmployeeByEmail(
+            accessToken!,
+            instanceUrl!,
+            userEmail!,
+          );
+
+          if (employee != null && employee['Id'] != null) {
+            final fetchedEmployeeId = employee['Id'].toString();
+            final fetchedFirstName = employee['First_Name__c']?.toString() ?? '';
+            final fetchedLastName = employee['Last_Name__c']?.toString() ?? '';
+
+            _logger.i('Employee fetched from Salesforce: $fetchedEmployeeId, $fetchedFirstName $fetchedLastName');
+
+            // Save employee ID for current session
+            await SharedPrefsUtils.saveCurrentSessionEmployeeId(fetchedEmployeeId);
+            employeeId = fetchedEmployeeId;
+
+            // Save to remember me if first/last names are available
+            if (fetchedFirstName.isNotEmpty && fetchedLastName.isNotEmpty) {
+              await SharedPrefsUtils.saveRememberMeStatus(
+                  fetchedEmployeeId,
+                  fetchedFirstName,
+                  fetchedLastName,
+                  email: userEmail
+              );
+              firstName = fetchedFirstName;
+              lastName = fetchedLastName;
+              _logger.i('Saved employee data to remember me');
+            }
+          } else {
+            _logger.w('No employee found in Salesforce for email: $userEmail');
+          }
+        } catch (e, stackTrace) {
+          _logger.e('Error fetching employee from Salesforce: $e', error: e, stackTrace: stackTrace);
+        }
+      }
+
+      _logger.i('Employee data initialization complete${employeeId != null ? ' with ID: $employeeId' : ' - no employee ID found'}');
     } catch (e, stackTrace) {
       _logger.e('Error initializing employee data: $e', error: e, stackTrace: stackTrace);
     }
@@ -621,9 +544,48 @@ class ClockInOutLogic with ChangeNotifier {
     if (employeeId != null && firstName != null && lastName != null &&
         employeeId!.isNotEmpty && firstName!.isNotEmpty && lastName!.isNotEmpty) {
       _logger.i('Manually saving remember me data');
-      await SharedPrefsUtils.saveRememberMeStatus(employeeId!, firstName!, lastName!);
+      await SharedPrefsUtils.saveRememberMeStatus(
+          employeeId!,
+          firstName!,
+          lastName!,
+          email: userEmail
+      );
     } else {
       _logger.w('Cannot save remember me data - missing required information');
     }
   }
+
+  // Method to refresh credentials if needed
+  Future<void> refreshCredentials() async {
+    _logger.i('Refreshing credentials');
+    await _loadCredentials();
+    notifyListeners();
+  }
+  //
+  // // Method to clear all data (useful for logout)
+  // Future<void> clearAllData() async {
+  //   _logger.i('Clearing all clock in/out data');
+  //
+  //   // Stop timers
+  //   _timerLogic.stopTimers();
+  //
+  //   // Clear SharedPreferences data
+  //   await SharedPrefsUtils.clearAllData();
+  //
+  //   // Reset local variables
+  //   _status = ClockStatus.unmarked;
+  //   inTime = null;
+  //   outTime = null;
+  //   _canClockIn = true;
+  //   _canClockOut = false;
+  //   accessToken = null;
+  //   instanceUrl = null;
+  //   employeeId = null;
+  //   userEmail = null;
+  //   firstName = null;
+  //   lastName = null;
+  //
+  //   notifyListeners();
+  //   _logger.i('All clock in/out data cleared');
+  // }
 }

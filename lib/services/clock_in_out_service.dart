@@ -1,10 +1,22 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
+import '../utils/shared_prefs_utils.dart';
 
 class ClockInOutService {
   static const String _apiVersion = 'v60.0';
   static final Logger _logger = Logger();
+
+  /// Enhanced method to get credentials automatically
+  static Future<Map<String, String>?> _getValidCredentials() async {
+    try {
+      _logger.i('Getting valid credentials for API call');
+      return await SharedPrefsUtils.getValidCredentialsWithEmployeeId();
+    } catch (e, stackTrace) {
+      _logger.e('Error getting valid credentials: $e', error: e, stackTrace: stackTrace);
+      return null;
+    }
+  }
 
   /// Fetches attendance records for a specific employee using Employee__c ID.
   static Future<List<Map<String, dynamic>>?> getAttendanceByEmployee(
@@ -57,6 +69,23 @@ class ClockInOutService {
     }
   }
 
+  /// Enhanced method to get attendance records using stored credentials
+  static Future<List<Map<String, dynamic>>?> getAttendanceByEmployeeStored() async {
+    _logger.i('Fetching attendance records using stored credentials');
+
+    final credentials = await _getValidCredentials();
+    if (credentials == null) {
+      _logger.e('Failed to get valid credentials for attendance fetch');
+      return null;
+    }
+
+    return await getAttendanceByEmployee(
+      credentials['access_token']!,
+      credentials['instance_url']!,
+      credentials['employee_id']!,
+    );
+  }
+
   /// Creates a new attendance record (Clock In).
   static Future<String?> clockIn(
       String accessToken,
@@ -104,6 +133,24 @@ class ClockInOutService {
       _logger.e('Error during clock in: $e', error: e, stackTrace: stackTrace);
       return null;
     }
+  }
+
+  /// Enhanced clock in method using stored credentials
+  static Future<String?> clockInStored() async {
+    _logger.i('Starting clock in process using stored credentials');
+
+    final credentials = await _getValidCredentials();
+    if (credentials == null) {
+      _logger.e('Failed to get valid credentials for clock in');
+      return null;
+    }
+
+    return await clockIn(
+      credentials['access_token']!,
+      credentials['instance_url']!,
+      credentials['employee_id']!,
+      DateTime.now().toUtc(),
+    );
   }
 
   /// Updates an existing attendance record (Clock Out).
@@ -216,7 +263,25 @@ class ClockInOutService {
     }
   }
 
+  /// Enhanced method to get today's attendance using stored credentials
+  static Future<Map<String, dynamic>?> getTodayAttendanceStored() async {
+    _logger.i('Fetching today\'s attendance using stored credentials');
+
+    final credentials = await _getValidCredentials();
+    if (credentials == null) {
+      _logger.e('Failed to get valid credentials for today\'s attendance');
+      return null;
+    }
+
+    return await getTodayAttendance(
+      credentials['access_token']!,
+      credentials['instance_url']!,
+      credentials['employee_id']!,
+    );
+  }
+
   /// Handles the full process: clock in if not already, otherwise clock out if in.
+  /// Original method with explicit parameters
   static Future<String> handleAttendance(
       String accessToken,
       String instanceUrl,
@@ -237,7 +302,7 @@ class ClockInOutService {
         final newId = await clockIn(accessToken, instanceUrl, employeeId, nowUtc);
         if (newId != null) {
           _logger.i('Successfully clocked in with record ID: $newId');
-          return 'Clocked In at ${nowUtc.toLocal()}';
+          return '✅ Clocked In at ${nowUtc.toLocal()}';
         } else {
           _logger.e('Failed to clock in');
           return '❌ Failed to Clock In';
@@ -249,7 +314,7 @@ class ClockInOutService {
         final success = await clockOut(accessToken, instanceUrl, recordId, nowUtc);
         if (success) {
           _logger.i('Successfully clocked out');
-          return 'Clocked Out at ${nowUtc.toLocal()}';
+          return '✅ Clocked Out at ${nowUtc.toLocal()}';
         } else {
           _logger.e('Failed to clock out');
           return '❌ Failed to Clock Out';
@@ -263,5 +328,48 @@ class ClockInOutService {
       _logger.e('Error handling attendance flow: $e', error: e, stackTrace: stackTrace);
       return '⚠️ Error occurred while handling attendance';
     }
+  }
+
+  /// Enhanced method that uses stored credentials automatically
+  static Future<String> handleAttendanceStored() async {
+    _logger.i('Starting handleAttendance using stored credentials');
+
+    try {
+      final credentials = await _getValidCredentials();
+      if (credentials == null) {
+        _logger.e('Failed to get valid credentials for attendance handling');
+        return '❌ Authentication failed. Please login again.';
+      }
+
+      return await handleAttendance(
+        credentials['access_token']!,
+        credentials['instance_url']!,
+        credentials['employee_id']!,
+      );
+    } catch (e, stackTrace) {
+      _logger.e('Error in handleAttendanceStored: $e', error: e, stackTrace: stackTrace);
+      return '⚠️ Error occurred while handling attendance';
+    }
+  }
+
+  /// Method to refresh credentials and retry operation if first attempt fails
+  static Future<String> handleAttendanceWithRetry() async {
+    _logger.i('Starting handleAttendance with retry logic');
+
+    // First attempt with current credentials
+    String result = await handleAttendanceStored();
+
+    // If authentication failed, try to refresh credentials and retry once
+    if (result.contains('Authentication failed') || result.contains('Failed to Clock')) {
+      _logger.i('First attempt failed, refreshing credentials and retrying...');
+
+      // Clear current credentials to force refresh
+      await SharedPrefsUtils.clearSalesforceCredentials();
+
+      // Retry with fresh credentials
+      result = await handleAttendanceStored();
+    }
+
+    return result;
   }
 }

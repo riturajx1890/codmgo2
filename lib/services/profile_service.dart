@@ -1,34 +1,86 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:codmgo2/utils/shared_prefs_utils.dart';
 
 class ProfileService {
   static const String _apiVersion = 'v52.0';
   static final Logger _logger = Logger();
 
-  /// Gets access token and instance URL from SharedPreferences
+  /// Gets access token and instance URL from SharedPrefsUtils
   static Future<Map<String, String>?> getAuthData() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final accessToken = prefs.getString('access_token');
-      final instanceUrl = prefs.getString('instance_url');
+      _logger.i('Getting auth data from SharedPrefsUtils');
 
-      if (accessToken == null || instanceUrl == null) {
-        _logger.e('Auth data missing from SharedPreferences');
+      // Use SharedPrefsUtils to get valid credentials (handles refresh automatically)
+      final credentials = await SharedPrefsUtils.getSalesforceCredentials();
+
+      if (credentials == null) {
+        _logger.e('Failed to get valid credentials from SharedPrefsUtils');
         return null;
       }
 
-      final normalizedUrl = instanceUrl.endsWith('/')
-          ? instanceUrl.substring(0, instanceUrl.length - 1)
-          : instanceUrl;
+      final normalizedUrl = credentials['instance_url']!.endsWith('/')
+          ? credentials['instance_url']!.substring(0, credentials['instance_url']!.length - 1)
+          : credentials['instance_url']!;
 
       return {
-        'access_token': accessToken,
+        'access_token': credentials['access_token']!,
         'instance_url': normalizedUrl,
       };
-    } catch (e) {
-      _logger.e('Error getting auth data: $e');
+    } catch (e, stackTrace) {
+      _logger.e('Error getting auth data: $e', error: e, stackTrace: stackTrace);
+      return null;
+    }
+  }
+
+  /// Gets complete auth data with employee ID
+  static Future<Map<String, String>?> getAuthDataWithEmployeeId() async {
+    try {
+      _logger.i('Getting auth data with employee ID from SharedPrefsUtils');
+
+      // Use SharedPrefsUtils comprehensive method
+      final credentials = await SharedPrefsUtils.getValidCredentialsWithEmployeeId();
+
+      if (credentials == null) {
+        _logger.e('Failed to get valid credentials with employee ID');
+        return null;
+      }
+
+      final normalizedUrl = credentials['instance_url']!.endsWith('/')
+          ? credentials['instance_url']!.substring(0, credentials['instance_url']!.length - 1)
+          : credentials['instance_url']!;
+
+      return {
+        'access_token': credentials['access_token']!,
+        'instance_url': normalizedUrl,
+        'employee_id': credentials['employee_id']!,
+      };
+    } catch (e, stackTrace) {
+      _logger.e('Error getting auth data with employee ID: $e', error: e, stackTrace: stackTrace);
+      return null;
+    }
+  }
+
+  /// Fetches current user's profile data
+  static Future<Map<String, dynamic>?> getCurrentUserProfile() async {
+    try {
+      _logger.i('Getting current user profile');
+
+      final authData = await getAuthDataWithEmployeeId();
+      if (authData == null) {
+        _logger.e('Authentication data not available for current user');
+        return null;
+      }
+
+      final employeeId = authData['employee_id']!;
+      return await _getEmployeeProfileWithAuth(
+        authData['access_token']!,
+        authData['instance_url']!,
+        employeeId,
+      );
+    } catch (e, stackTrace) {
+      _logger.e('Error getting current user profile: $e', error: e, stackTrace: stackTrace);
       return null;
     }
   }
@@ -111,15 +163,49 @@ class ProfileService {
           return null;
         }
       } else if (response.statusCode == 401) {
-        _logger.e('Unauthorized - token may be expired');
+        _logger.e('Unauthorized - token may be expired, attempting to refresh credentials');
+
+        // Try to refresh credentials and retry once
+        final refreshedAuth = await getAuthData();
+        if (refreshedAuth != null) {
+          _logger.i('Credentials refreshed, retrying request');
+          return await _getEmployeeProfileWithAuth(
+            refreshedAuth['access_token']!,
+            refreshedAuth['instance_url']!,
+            employeeId,
+          );
+        }
+
         return null;
       } else {
-        _logger.e('Request failed with status: ${response.statusCode}');
+        _logger.e('Request failed with status: ${response.statusCode}, body: ${response.body}');
         return null;
       }
-    } catch (e) {
-      _logger.e('Exception occurred during API call: $e');
+    } catch (e, stackTrace) {
+      _logger.e('Exception occurred during API call: $e', error: e, stackTrace: stackTrace);
       return null;
+    }
+  }
+
+  /// Updates current user's profile data
+  static Future<bool> updateCurrentUserProfile(Map<String, dynamic> profileData) async {
+    try {
+      final authData = await getAuthDataWithEmployeeId();
+      if (authData == null) {
+        _logger.e('Authentication data not available for current user');
+        return false;
+      }
+
+      final employeeId = authData['employee_id']!;
+      return await _updateEmployeeProfileWithAuth(
+        authData['access_token']!,
+        authData['instance_url']!,
+        employeeId,
+        profileData,
+      );
+    } catch (e, stackTrace) {
+      _logger.e('Error updating current user profile: $e', error: e, stackTrace: stackTrace);
+      return false;
     }
   }
 
@@ -159,12 +245,15 @@ class ProfileService {
       Map<String, dynamic> profileData,
       ) async {
     if (employeeId.isEmpty || profileData.isEmpty) {
+      _logger.e('Employee ID is empty or profile data is empty');
       return false;
     }
 
     final url = '$instanceUrl/services/data/$_apiVersion/sobjects/Employee__c/$employeeId';
 
     try {
+      _logger.i('Updating employee profile for ID: $employeeId');
+
       final response = await http.patch(
         Uri.parse(url),
         headers: {
@@ -175,14 +264,30 @@ class ProfileService {
       ).timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 204) {
-        _logger.i('Profile update successful');
+        _logger.i('Profile update successful for employee ID: $employeeId');
         return true;
+      } else if (response.statusCode == 401) {
+        _logger.e('Unauthorized during update - token may be expired, attempting to refresh');
+
+        // Try to refresh credentials and retry once
+        final refreshedAuth = await getAuthData();
+        if (refreshedAuth != null) {
+          _logger.i('Credentials refreshed, retrying update');
+          return await _updateEmployeeProfileWithAuth(
+            refreshedAuth['access_token']!,
+            refreshedAuth['instance_url']!,
+            employeeId,
+            profileData,
+          );
+        }
+
+        return false;
       } else {
-        _logger.e('Update failed: ${response.statusCode}');
+        _logger.e('Update failed with status: ${response.statusCode}, body: ${response.body}');
         return false;
       }
-    } catch (e) {
-      _logger.e('Error updating employee profile: $e');
+    } catch (e, stackTrace) {
+      _logger.e('Error updating employee profile: $e', error: e, stackTrace: stackTrace);
       return false;
     }
   }
@@ -213,11 +318,13 @@ class ProfileService {
       String accessToken,
       String instanceUrl,
       ) async {
-    final query = "SELECT Id, Name, First_Name__c, Last_Name__c, Email__c FROM Employee__c";
+    final query = "SELECT Id, Name, First_Name__c, Last_Name__c, Email__c, Department__c, Employee_Code__c FROM Employee__c ORDER BY Last_Name__c, First_Name__c";
     final encodedQuery = Uri.encodeComponent(query);
     final url = '$instanceUrl/services/data/$_apiVersion/query/?q=$encodedQuery';
 
     try {
+      _logger.i('Getting all employees');
+
       final response = await http.get(
         Uri.parse(url),
         headers: {
@@ -229,11 +336,28 @@ class ProfileService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final records = data['records'] as List;
+        _logger.i('Retrieved ${records.length} employees');
         return records.cast<Map<String, dynamic>>();
+      } else if (response.statusCode == 401) {
+        _logger.e('Unauthorized - token may be expired, attempting to refresh');
+
+        // Try to refresh credentials and retry once
+        final refreshedAuth = await getAuthData();
+        if (refreshedAuth != null) {
+          _logger.i('Credentials refreshed, retrying get all employees');
+          return await _getAllEmployeesWithAuth(
+            refreshedAuth['access_token']!,
+            refreshedAuth['instance_url']!,
+          );
+        }
+
+        return null;
       } else {
+        _logger.e('Get all employees failed with status: ${response.statusCode}');
         return null;
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _logger.e('Error getting all employees: $e', error: e, stackTrace: stackTrace);
       return null;
     }
   }
@@ -267,9 +391,16 @@ class ProfileService {
       String instanceUrl,
       Map<String, dynamic> employeeData,
       ) async {
+    if (employeeData.isEmpty) {
+      _logger.e('Employee data is empty');
+      return null;
+    }
+
     final url = '$instanceUrl/services/data/$_apiVersion/sobjects/Employee__c';
 
     try {
+      _logger.i('Creating new employee');
+
       final response = await http.post(
         Uri.parse(url),
         headers: {
@@ -282,11 +413,29 @@ class ProfileService {
       if (response.statusCode == 201) {
         final data = json.decode(response.body);
         final newId = data['id'];
+        _logger.i('Employee created successfully with ID: $newId');
         return newId;
+      } else if (response.statusCode == 401) {
+        _logger.e('Unauthorized during create - token may be expired, attempting to refresh');
+
+        // Try to refresh credentials and retry once
+        final refreshedAuth = await getAuthData();
+        if (refreshedAuth != null) {
+          _logger.i('Credentials refreshed, retrying create employee');
+          return await _createEmployeeWithAuth(
+            refreshedAuth['access_token']!,
+            refreshedAuth['instance_url']!,
+            employeeData,
+          );
+        }
+
+        return null;
       } else {
+        _logger.e('Create employee failed with status: ${response.statusCode}, body: ${response.body}');
         return null;
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _logger.e('Error creating employee: $e', error: e, stackTrace: stackTrace);
       return null;
     }
   }
@@ -321,6 +470,7 @@ class ProfileService {
       String searchTerm,
       ) async {
     if (searchTerm.isEmpty) {
+      _logger.e('Search term is empty');
       return null;
     }
 
@@ -331,6 +481,8 @@ class ProfileService {
     final url = '$instanceUrl/services/data/$_apiVersion/query/?q=$encodedQuery';
 
     try {
+      _logger.i('Searching employees with term: $searchTerm');
+
       final response = await http.get(
         Uri.parse(url),
         headers: {
@@ -342,11 +494,29 @@ class ProfileService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final records = data['records'] as List;
+        _logger.i('Found ${records.length} employees matching search term');
         return records.cast<Map<String, dynamic>>();
+      } else if (response.statusCode == 401) {
+        _logger.e('Unauthorized during search - token may be expired, attempting to refresh');
+
+        // Try to refresh credentials and retry once
+        final refreshedAuth = await getAuthData();
+        if (refreshedAuth != null) {
+          _logger.i('Credentials refreshed, retrying search');
+          return await _searchEmployeesWithAuth(
+            refreshedAuth['access_token']!,
+            refreshedAuth['instance_url']!,
+            searchTerm,
+          );
+        }
+
+        return null;
       } else {
+        _logger.e('Search failed with status: ${response.statusCode}');
         return null;
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _logger.e('Error searching employees: $e', error: e, stackTrace: stackTrace);
       return null;
     }
   }
@@ -381,6 +551,7 @@ class ProfileService {
       String department,
       ) async {
     if (department.isEmpty) {
+      _logger.e('Department is empty');
       return null;
     }
 
@@ -391,6 +562,8 @@ class ProfileService {
     final url = '$instanceUrl/services/data/$_apiVersion/query/?q=$encodedQuery';
 
     try {
+      _logger.i('Getting employees by department: $department');
+
       final response = await http.get(
         Uri.parse(url),
         headers: {
@@ -402,11 +575,29 @@ class ProfileService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final records = data['records'] as List;
+        _logger.i('Found ${records.length} employees in department: $department');
         return records.cast<Map<String, dynamic>>();
+      } else if (response.statusCode == 401) {
+        _logger.e('Unauthorized - token may be expired, attempting to refresh');
+
+        // Try to refresh credentials and retry once
+        final refreshedAuth = await getAuthData();
+        if (refreshedAuth != null) {
+          _logger.i('Credentials refreshed, retrying get by department');
+          return await _getEmployeesByDepartmentWithAuth(
+            refreshedAuth['access_token']!,
+            refreshedAuth['instance_url']!,
+            department,
+          );
+        }
+
+        return null;
       } else {
+        _logger.e('Get by department failed with status: ${response.statusCode}');
         return null;
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _logger.e('Error getting employees by department: $e', error: e, stackTrace: stackTrace);
       return null;
     }
   }
@@ -437,11 +628,18 @@ class ProfileService {
       String instanceUrl,
       String employeeId,
       ) async {
+    if (employeeId.isEmpty) {
+      _logger.e('Employee ID is empty');
+      return null;
+    }
+
     final query = "SELECT Id, Name, First_Name__c, Last_Name__c, Employee_Code__c FROM Employee__c WHERE Id = '$employeeId'";
     final encodedQuery = Uri.encodeComponent(query);
     final url = '$instanceUrl/services/data/$_apiVersion/query/?q=$encodedQuery';
 
     try {
+      _logger.i('Getting basic info for employee ID: $employeeId');
+
       final response = await http.get(
         Uri.parse(url),
         headers: {
@@ -455,13 +653,44 @@ class ProfileService {
         final records = data['records'] as List;
 
         if (records.isNotEmpty) {
+          _logger.i('Basic info found for employee ID: $employeeId');
           return records.first;
+        } else {
+          _logger.w('No basic info found for employee ID: $employeeId');
+          return null;
         }
-      }
+      } else if (response.statusCode == 401) {
+        _logger.e('Unauthorized - token may be expired, attempting to refresh');
 
+        // Try to refresh credentials and retry once
+        final refreshedAuth = await getAuthData();
+        if (refreshedAuth != null) {
+          _logger.i('Credentials refreshed, retrying get basic info');
+          return await getEmployeeBasicInfoWithAuth(
+            refreshedAuth['access_token']!,
+            refreshedAuth['instance_url']!,
+            employeeId,
+          );
+        }
+
+        return null;
+      } else {
+        _logger.e('Get basic info failed with status: ${response.statusCode}');
+        return null;
+      }
+    } catch (e, stackTrace) {
+      _logger.e('Error getting employee basic info: $e', error: e, stackTrace: stackTrace);
       return null;
-    } catch (e) {
-      return null;
+    }
+  }
+
+  /// Checks if user has valid session for profile operations
+  static Future<bool> hasValidSession() async {
+    try {
+      return await SharedPrefsUtils.hasValidUserSession();
+    } catch (e, stackTrace) {
+      _logger.e('Error checking valid session: $e', error: e, stackTrace: stackTrace);
+      return false;
     }
   }
 }
