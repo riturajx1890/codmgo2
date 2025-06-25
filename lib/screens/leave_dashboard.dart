@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:codmgo2/screens/apply_leave.dart';
+import 'package:codmgo2/screens/leave_history.dart';
 import 'package:codmgo2/screens/dashboard_page.dart';
 import 'package:codmgo2/screens/attendence_history.dart';
 import 'package:codmgo2/services/profile_service.dart';
@@ -459,6 +460,7 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> with TickerProv
                                 : 'You are not on leave today',
                             style: TextStyle(
                               fontSize: 14,
+                              fontWeight: FontWeight.w500,
                               color: subtitleColor,
                             ),
                           ),
@@ -515,9 +517,11 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> with TickerProv
                           () {
                         // Add haptic feedback
                         HapticFeedback.lightImpact();
-                        // TODO: Navigate to Leave History page when implemented
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Leave History feature coming soon!')),
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => LeaveHistoryPage(employeeId: employeeId ?? widget.employeeId),
+                          ),
                         );
                       },
                     ),

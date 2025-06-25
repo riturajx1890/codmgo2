@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:codmgo2/utils/apply_leave_logic.dart';
 
-enum LeaveType { casual, halfDay, oneDay, sick }
 
 class ApplyLeavePage extends StatefulWidget {
   final String employeeId;
@@ -148,94 +148,202 @@ class _ApplyLeavePageState extends State<ApplyLeavePage> {
       return;
     }
 
+    // Set end date to start date if it's a single day leave and end date is not set
+    DateTime finalEndDate = _endDate ?? _startDate!;
+
     setState(() {
       _isLoading = true;
     });
 
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      // Call the apply leave logic
+      final success = await ApplyLeaveLogic.submitLeaveRequest(
+        leaveType: _selectedLeaveType!, // must be of type LeaveType
+        startDate: _startDate!,
+        endDate: finalEndDate,
+        description: _descriptionController.text.trim().isEmpty
+            ? 'No description provided'
+            : _descriptionController.text.trim(),
+      );
 
-    setState(() {
-      _isLoading = false;
-    });
 
-    showDialog(
-      context: context,
-      barrierDismissible: false, // Allow dismissal on tap outside
-      builder: (BuildContext context) {
-        final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+      setState(() {
+        _isLoading = false;
+      });
 
-        return GestureDetector(
-          onTap: () {
-            Navigator.of(context).pop(); // Close dialog
-            Navigator.of(context).pop(); // Go back to previous screen
-          },
-          child: AlertDialog(
-            backgroundColor: isDarkMode ? const Color(0xFF1E1E1E) : Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF48BB78).withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(40),
-                  ),
-                  child: const Icon(
-                    Icons.check_circle,
-                    color: Color(0xFF48BB78),
-                    size: 40,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Success!',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: isDarkMode ? Colors.white : const Color(0xFF2D3748),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Your ${_leaveTypeDisplayNames[_selectedLeaveType!]} request has been submitted successfully.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isDarkMode ? Colors.white70 : Colors.grey[600],
-                  ),
-                ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.of(context).pop(); // Close dialog
-                      Navigator.of(context).pop(); // Go back to previous screen
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF667EEA),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+      if (success) {
+        // Show success dialog
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (BuildContext context) {
+            final isDarkMode = Theme
+                .of(context)
+                .brightness == Brightness.dark;
+
+            return GestureDetector(
+              onTap: () {
+                Navigator.of(context).pop(); // Close dialog
+                Navigator.of(context).pop(); // Go back to previous screen
+              },
+              child: AlertDialog(
+                backgroundColor: isDarkMode ? const Color(0xFF1E1E1E) : Colors
+                    .white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16)),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF48BB78).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(40),
                       ),
-                      shadowColor: Colors.transparent,
-                      side: const BorderSide(
-                        color: Color(0xFF667EEA),
-                        width: 1,
+                      child: const Icon(
+                        Icons.check_circle,
+                        color: Color(0xFF48BB78),
+                        size: 40,
                       ),
                     ),
-                    child: const Text('Done'),
-                  ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Success!',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: isDarkMode ? Colors.white : const Color(
+                            0xFF2D3748),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Your ${_leaveTypeDisplayNames[_selectedLeaveType!]} request has been submitted successfully. HR and your manager have been notified.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: isDarkMode ? Colors.white70 : Colors.grey[600],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(context).pop(); // Close dialog
+                          Navigator
+                              .of(context)
+                              .pop(); // Go back to previous screen
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF667EEA),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          shadowColor: Colors.transparent,
+                          side: const BorderSide(
+                            color: Color(0xFF667EEA),
+                            width: 1,
+                          ),
+                        ),
+                        child: const Text('Done'),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
-      },
-    );
+      } else {
+        // Show error dialog
+        showDialog(
+          context: context,
+          builder: (BuildContext context) {
+            final isDarkMode = Theme
+                .of(context)
+                .brightness == Brightness.dark;
+
+            return AlertDialog(
+              backgroundColor: isDarkMode ? const Color(0xFF1E1E1E) : Colors
+                  .white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(40),
+                    ),
+                    child: const Icon(
+                      Icons.error_outline,
+                      color: Colors.red,
+                      size: 40,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Error',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: isDarkMode ? Colors.white : const Color(
+                          0xFF2D3748),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Failed to submit leave request. Please try again.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isDarkMode ? Colors.white70 : Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(context).pop(); // Close dialog
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blueAccent,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        shadowColor: Colors.transparent,
+                      ),
+                      child: const Text('Try Again'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('An error occurred: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override

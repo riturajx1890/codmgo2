@@ -311,7 +311,8 @@ class _UpcomingLeavesState extends State<UpcomingLeaves> {
                 _formatLeaveText(leave),
                 style: TextStyle(
                   fontSize: 14,
-                  color: widget.isDarkMode ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.w500,
+                  color: subtitleColor,
                 ),
               ),
               if (description != null && description.isNotEmpty) ...[
