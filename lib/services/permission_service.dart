@@ -17,7 +17,6 @@ class PermissionService {
       if (androidInfo.version.sdkInt >= 33) {
         // Android 13 (API 33) and above
         permissionsToRequest.add(Permission.photos); // Covers READ_MEDIA_IMAGES and READ_MEDIA_VIDEO
-        permissionsToRequest.add(Permission.audio);   // Covers READ_MEDIA_AUDIO
       } else {
         // Android below 13 (API < 33)
         permissionsToRequest.add(Permission.storage);
