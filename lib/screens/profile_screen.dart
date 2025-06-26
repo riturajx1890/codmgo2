@@ -11,6 +11,8 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
+import 'package:codmgo2/screens/help_screen.dart';
+
 class ProfilePage extends StatefulWidget {
   final String? employeeId;
 
@@ -71,6 +73,7 @@ class _ProfilePageState extends State<ProfilePage> {
       if (mounted) {
         setState(() {
           _profileImage = File(imagePath);
+
         });
       }
     }
@@ -216,8 +219,13 @@ class _ProfilePageState extends State<ProfilePage> {
                 padding: const EdgeInsets.only(right: 8.0),
                 child: TextButton.icon(
                   onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Help feature coming soon')),
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => HelpScreen(
+                          employeeId: profileLogic.employeeId ?? widget.employeeId ?? '',
+                        ),
+                      ),
                     );
                   },
                   icon: Icon(
