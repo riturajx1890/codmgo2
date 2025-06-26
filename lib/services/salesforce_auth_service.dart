@@ -2,37 +2,32 @@ import 'dart:convert';
 import 'dart:async';
 import 'package:http/http.dart' as http;
 import 'package:logger/logger.dart';
+import 'package:codmgo2/services/config.dart';
 
 class SalesforceAuthService {
   static final Logger _logger = Logger();
 
-  static const String _clientId = '3MVG9g4ncJRWcPBAkl0kWpnZgvu1HXq8AOCdHvOBJ_VHoWzqK6zG7VNEqlC1vvOIGUIDa.ZBqNFz.IdA99cyO';
-  static const String _clientSecret = '4ED3ECDBA2D428C616DF961FB7D3127421F0A5A0AB655DE27CAC6430E6EF1CDC';
-  static const String _username = 'codmsoftware@pboedition.com.riturajsb';
-  static const String _passwordWithToken = 'RituRaj@20258onQrKhcHZwQHO0USxeyjABlU';
-  static const String _loginUrl = 'https://test.salesforce.com/services/oauth2/token';
-
   static Future<Map<String, dynamic>?> authenticate() async {
     _logger.i('Starting Salesforce authentication');
-    _logger.d('Using login URL: $_loginUrl');
-    _logger.d('Using username: $_username');
+    _logger.d('Using login URL: ${Config.salesforceLoginUrl}');
+    _logger.d('Using username: ${Config.salesforceUsername}');
 
     try {
       final response = await http.post(
-        Uri.parse(_loginUrl),
+        Uri.parse(Config.salesforceLoginUrl),
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: {
           'grant_type': 'password',
-          'client_id': _clientId,
-          'client_secret': _clientSecret,
-          'username': _username,
-          'password': _passwordWithToken,
+          'client_id': Config.salesforceClientId,
+          'client_secret': Config.salesforceClientSecret,
+          'username': Config.salesforceUsername,
+          'password': Config.salesforcePasswordWithToken,
         },
       ).timeout(
-        const Duration(seconds: 30),
+        Duration(seconds: Config.requestTimeoutSeconds),
         onTimeout: () {
           _logger.e('Authentication request timed out');
-          throw TimeoutException('Authentication request timed out', const Duration(seconds: 30));
+          throw TimeoutException('Authentication request timed out', Duration(seconds: Config.requestTimeoutSeconds));
         },
       );
 
