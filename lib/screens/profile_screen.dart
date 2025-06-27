@@ -7,10 +7,9 @@ import 'package:codmgo2/screens/leave_dashboard.dart';
 import 'package:codmgo2/screens/attendence_history.dart';
 import 'package:codmgo2/utils/logout_logic.dart';
 import 'package:image_picker/image_picker.dart';
+
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
-
 import 'package:codmgo2/screens/help_screen.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -38,17 +37,10 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _loadProfileData() async {
     try {
-      if (widget.employeeId != null && widget.employeeId!.isNotEmpty) {
+      if (widget.employeeId?.isNotEmpty == true) {
         final isValid = await profileLogic.validateEmployeeExists(widget.employeeId!);
-        if (!isValid) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Invalid employee ID: ${widget.employeeId}'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
+        if (!isValid && mounted) {
+          _showSnackBar('Invalid employee ID: ${widget.employeeId}', Colors.red);
           return;
         }
       }
@@ -56,12 +48,7 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (e) {
       debugPrint('Error in _loadProfileData: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading profile: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _showSnackBar('Error loading profile: ${e.toString()}', Colors.red);
       }
     }
   }
@@ -69,78 +56,149 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _loadCachedProfileImage() async {
     final prefs = await SharedPreferences.getInstance();
     final imagePath = prefs.getString('profile_image_path');
-    if (imagePath != null && await File(imagePath).exists()) {
-      if (mounted) {
-        setState(() {
-          _profileImage = File(imagePath);
-
-        });
-      }
+    if (imagePath != null && await File(imagePath).exists() && mounted) {
+      setState(() => _profileImage = File(imagePath));
     }
   }
 
-  Future<void> _refreshProfile() async {
-    await profileLogic.loadProfile();
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: color),
+    );
   }
 
   String _formatDate(dynamic dateValue) {
     if (dateValue == null || dateValue.toString().isEmpty) return 'N/A';
     try {
-      final date = DateTime.parse(dateValue.toString());
-      return DateFormat('MMM dd, yyyy').format(date);
+      return DateFormat('MMM dd, yyyy').format(DateTime.parse(dateValue.toString()));
     } catch (e) {
       return dateValue.toString();
     }
   }
 
-  String _formatValue(dynamic value) {
-    if (value == null || value.toString().isEmpty) return 'N/A';
-    return value.toString();
-  }
+  String _formatValue(dynamic value) =>
+      value?.toString().isNotEmpty == true ? value.toString() : 'N/A';
 
-  String _formatAadhar(dynamic value) {
-    if (value == null || value.toString().isEmpty) return 'N/A';
-    return value.toString().replaceAll(RegExp(r'[^0-9]'), '');
-  }
+  String _formatAadhar(dynamic value) =>
+      value?.toString().isNotEmpty == true
+          ? value.toString().replaceAll(RegExp(r'[^0-9]'), '')
+          : 'N/A';
 
   Color _getPerformanceFlagColor(String? flag) {
-    if (flag == null || flag.isEmpty) return Colors.grey;
-    try {
-      if (flag.startsWith('#')) {
-        return Color(int.parse(flag.replaceFirst('#', '0xFF')));
-      }
-      switch (flag.toLowerCase()) {
-        case 'excellent':
-          return Colors.green;
-        case 'good':
-          return Colors.blue;
-        case 'average':
-          return Colors.orange;
-        case 'poor':
-          return Colors.red;
-        default:
-          return Colors.grey;
-      }
-    } catch (e) {
-      return Colors.grey;
+    if (flag?.isEmpty != false) return Colors.grey;
+    switch (flag!.toLowerCase()) {
+      case 'green': return Colors.green;
+      case 'yellow': return Colors.yellow;
+      case 'orange': return Colors.orange;
+      case 'red': return Colors.red;
+      default: return Colors.grey;
     }
   }
 
   Future<void> _pickProfileImage() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
-    if (pickedFile != null && mounted) {
-      final imageFile = File(pickedFile.path);
-      setState(() {
-        _profileImage = imageFile;
-      });
-      // Save image path to SharedPreferences
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('profile_image_path', imageFile.path);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile photo updated successfully')),
+    try {
+      final picker = ImagePicker();
+
+      // Show options for camera or gallery
+      final source = await showModalBottomSheet<ImageSource>(
+        context: context,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) => SafeArea(
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Select Profile Photo',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildImageSourceButton(
+                      Icons.photo_camera,
+                      'Camera',
+                          () => Navigator.pop(context, ImageSource.camera),
+                    ),
+                    _buildImageSourceButton(
+                      Icons.photo_library,
+                      'Gallery',
+                          () => Navigator.pop(context, ImageSource.gallery),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+              ],
+            ),
+          ),
+        ),
       );
+
+      if (source == null) return;
+
+      final pickedFile = await picker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 800,
+        maxHeight: 800,
+      );
+
+      if (pickedFile != null && mounted) {
+        final imageFile = File(pickedFile.path);
+        setState(() => _profileImage = imageFile);
+
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('profile_image_path', imageFile.path);
+        _showSnackBar('Profile photo updated successfully', Colors.green);
+      }
+    } catch (e) {
+      debugPrint('Error picking image: $e');
+      if (mounted) {
+        _showSnackBar('Error updating profile photo', Colors.red);
+      }
     }
+  }
+
+  Widget _buildImageSourceButton(IconData icon, String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 100,
+        padding: const EdgeInsets.symmetric(vertical: 15),
+        decoration: BoxDecoration(
+          color: const Color(0xFF667EEA).withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFF667EEA).withOpacity(0.3)),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 30, color: const Color(0xFF667EEA)),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF667EEA),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _onBottomNavTap(BuildContext context, int index) {
@@ -149,40 +207,219 @@ class _ProfilePageState extends State<ProfilePage> {
     final profileData = context.read<ProfileLogic>().profileData;
     final employeeId = widget.employeeId ?? profileLogic.employeeId ?? '';
 
-    switch (index) {
-      case 0:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => DashboardPage(
-              employeeId: employeeId,
-              firstName: _formatValue(profileData?['First_Name__c']),
-              lastName: _formatValue(profileData?['Last_Name__c']),
-            ),
-          ),
-        );
-        break;
-      case 1:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => LeaveDashboardPage(employeeId: employeeId),
-          ),
-        );
-        break;
-      case 2:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => AttendanceHistoryPage(employeeId: employeeId),
-          ),
-        );
-        break;
+    final routes = [
+          () => DashboardPage(
+        employeeId: employeeId,
+        firstName: _formatValue(profileData?['First_Name__c']),
+        lastName: _formatValue(profileData?['Last_Name__c']),
+      ),
+          () => LeaveDashboardPage(employeeId: employeeId),
+          () => AttendanceHistoryPage(employeeId: employeeId),
+    ];
+
+    if (index < routes.length) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => routes[index]()),
+      );
     }
   }
 
-  void _showLogoutDialog() {
-    LogoutLogic.showLogoutDialog(context);
+  Widget _buildProfileHeader(Map<String, dynamic> profileData, Color cardColor, Color textColor) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF667EEA).withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          GestureDetector(
+            onTap: _pickProfileImage,
+            child: Stack(
+              alignment: Alignment.bottomRight,
+              children: [
+                Container(
+                  width: 100,
+                  height: 100,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white70, width: 3),
+                    color: Colors.white.withOpacity(0.1),
+                  ),
+                  child: ClipOval(
+                    child: _profileImage != null
+                        ? Image.file(
+                      _profileImage!,
+                      fit: BoxFit.cover,
+                      width: 100,
+                      height: 100,
+                      errorBuilder: (context, error, stackTrace) =>
+                      const Icon(Icons.person, size: 50, color: Colors.white70),
+                    )
+                        : const Icon(Icons.person, size: 50, color: Colors.white70),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: const BoxDecoration(
+                    color: Colors.green,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.edit, color: Colors.white, size: 16),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            '${_formatValue(profileData['First_Name__c'])} ${_formatValue(profileData['Last_Name__c'])}',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'ID: ${_formatValue(profileData['Employee_Code__c'])}',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.9),
+              fontSize: 16,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPerformanceFlag(String? flag, Color textColor, Color cardColor, bool isDarkMode) {
+    if (flag?.isEmpty != false) return const SizedBox.shrink();
+
+    final flagColor = _getPerformanceFlagColor(flag);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 18),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: flagColor, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.flag, color: flagColor, size: 24),
+          const SizedBox(width: 8),
+          Text(
+            'Performance Flag: $flag',
+            style: TextStyle(
+              color: flagColor,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSection(String title, List<Map<String, dynamic>> items, Color cardColor, bool isDarkMode, Color textColor, Color? subtitleColor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: textColor)),
+        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.08),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            children: _buildInfoRows(items, textColor, subtitleColor, isDarkMode),
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildInfoRows(List<Map<String, dynamic>> items, Color textColor, Color? subtitleColor, bool isDarkMode) {
+    List<Widget> widgets = [];
+    for (int i = 0; i < items.length; i++) {
+      widgets.add(_buildInfoRow(items[i], textColor, subtitleColor));
+      if (i < items.length - 1) {
+        widgets.addAll([
+          const SizedBox(height: 16),
+          Divider(color: isDarkMode ? Colors.grey[700] : Colors.grey[200], thickness: 1, height: 1),
+          const SizedBox(height: 16),
+        ]);
+      }
+    }
+    return widgets;
+  }
+
+  Widget _buildInfoRow(Map<String, dynamic> item, Color textColor, Color? subtitleColor) {
+    return Row(
+      children: [
+        Container(
+          width: 60,
+          height: 60,
+          decoration: BoxDecoration(
+            color: const Color(0xFF667EEA).withOpacity(0.1),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(item['icon'], color: const Color(0xFF667EEA), size: 30),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                item['label'],
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: textColor),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                item['value'],
+                style: TextStyle(fontSize: 14, color: subtitleColor),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -201,14 +438,7 @@ class _ProfilePageState extends State<ProfilePage> {
             elevation: 0,
             toolbarHeight: 63,
             backgroundColor: cardColor,
-            title: Text(
-              'Profile',
-              style: TextStyle(
-                color: textColor,
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            title: Text('Profile', style: TextStyle(color: textColor, fontSize: 20, fontWeight: FontWeight.w600)),
             centerTitle: true,
             leading: IconButton(
               icon: Icon(Icons.arrow_back_ios, color: textColor),
@@ -218,29 +448,16 @@ class _ProfilePageState extends State<ProfilePage> {
               Padding(
                 padding: const EdgeInsets.only(right: 8.0),
                 child: TextButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => HelpScreen(
-                          employeeId: profileLogic.employeeId ?? widget.employeeId ?? '',
-                        ),
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => HelpScreen(
+                        employeeId: profileLogic.employeeId ?? widget.employeeId ?? '',
                       ),
-                    );
-                  },
-                  icon: Icon(
-                    Icons.help_outline,
-                    color: Colors.green,
-                    size: 24,
-                  ),
-                  label: Text(
-                    'Help',
-                    style: TextStyle(
-                      color: Colors.green,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
                     ),
                   ),
+                  icon: const Icon(Icons.help_outline, color: Colors.green, size: 24),
+                  label: const Text('Help', style: TextStyle(color: Colors.green, fontSize: 16, fontWeight: FontWeight.w600)),
                 ),
               ),
             ],
@@ -248,471 +465,131 @@ class _ProfilePageState extends State<ProfilePage> {
           body: profileLogic.isLoading
               ? const Center(child: CircularProgressIndicator())
               : profileLogic.errorMessage != null
-              ? Center(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.error_outline, size: 64, color: Colors.red),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Error Loading Profile',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: textColor,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    profileLogic.errorMessage!,
-                    style: TextStyle(fontSize: 14, color: subtitleColor),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Employee ID: ${widget.employeeId ?? profileLogic.employeeId ?? 'Not available'}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: subtitleColor,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: _refreshProfile,
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
-            ),
-          )
+              ? _buildErrorState(profileLogic.errorMessage!, textColor, subtitleColor)
               : profileLogic.profileData == null
-              ? Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.person_off, size: 64, color: subtitleColor),
-                const SizedBox(height: 16),
-                Text(
-                  'No Profile Data',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: textColor,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Unable to load profile information',
-                  style: TextStyle(fontSize: 14, color: subtitleColor),
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: _refreshProfile,
-                  child: const Text('Reload'),
-                ),
-              ],
-            ),
-          )
-              : RefreshIndicator(
-            onRefresh: _refreshProfile,
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Profile Header Section
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFF667EEA).withOpacity(0.3),
-                          blurRadius: 15,
-                          offset: const Offset(0, 8),
-                        ),
-                        BoxShadow(
-                          color: isDarkMode
-                              ? Colors.black.withOpacity(0.3)
-                              : Colors.black.withOpacity(0.1),
-                          blurRadius: 8,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        // Profile Photo
-                        GestureDetector(
-                          onTap: _pickProfileImage,
-                          child: Stack(
-                            alignment: Alignment.bottomRight,
-                            children: [
-                              Container(
-                                width: 100,
-                                height: 100,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF667EEA).withOpacity(0.1),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.white70, width: 3),
-                                ),
-                                child: _profileImage != null
-                                    ? ClipOval(
-                                  child: Image.file(
-                                    _profileImage!,
-                                    fit: BoxFit.cover,
-                                    width: 100,
-                                    height: 100,
-                                  ),
-                                )
-                                    : Icon(
-                                  Icons.person,
-                                  size: 50,
-                                  color: Colors.white70,
-                                ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.all(4),
-                                decoration: const BoxDecoration(
-                                  color: Colors.green,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.edit,
-                                  color: Colors.white,
-                                  size: 16,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        // Employee Name
-                        Text(
-                          '${_formatValue(profileLogic.profileData?['First_Name__c'])} ${_formatValue(profileLogic.profileData?['Last_Name__c'])}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 8),
-                        // Employee Code
-                        Text(
-                          'ID: ${_formatValue(profileLogic.profileData?['Employee_Code__c'])}',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.9),
-                            fontSize: 16,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 18),
-
-                  // Performance Flag Section
-                  if (profileLogic.profileData?['Performance_Flag__c'] != null)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      margin: const EdgeInsets.only(bottom: 18),
-                      decoration: BoxDecoration(
-                        color: _getPerformanceFlagColor(
-                            profileLogic.profileData?['Performance_Flag__c'])
-                            .withOpacity(isDarkMode ? 0.2 : 0.3),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: _getPerformanceFlagColor(
-                              profileLogic.profileData?['Performance_Flag__c']),
-                          width: 2,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.flag,
-                            color: textColor, // Use textColor for consistency
-                            size: 24,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Performance Flag: ${_formatValue(profileLogic.profileData?['Performance_Flag__c'])}',
-                            style: TextStyle(
-                              color: textColor, // Use textColor for consistency
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                  // Contact Information Section
-                  _buildSection(
-                    'Contact Information',
-                    [
-                      _buildInfoRow('Phone', _formatValue(profileLogic.profileData?['Phone__c']),
-                          Icons.phone, textColor, subtitleColor),
-                      _buildInfoRow('Email', _formatValue(profileLogic.profileData?['Email__c']),
-                          Icons.email, textColor, subtitleColor),
-                    ],
-                    cardColor,
-                    isDarkMode,
-                    textColor,
-                  ),
-
-                  const SizedBox(height: 18),
-
-                  // Banking Information Section
-                  _buildSection(
-                    'Banking Information',
-                    [
-                      _buildInfoRow('Bank Name',
-                          _formatValue(profileLogic.profileData?['Bank_Name__c']),
-                          Icons.account_balance, textColor, subtitleColor),
-                      _buildInfoRow('IFSC Code',
-                          _formatValue(profileLogic.profileData?['IFSC_Code__c']),
-                          Icons.code, textColor, subtitleColor),
-                      _buildInfoRow('Account Number',
-                          _formatValue(profileLogic.profileData?['Bank_Account_Number__c']),
-                          Icons.credit_card, textColor, subtitleColor),
-                    ],
-                    cardColor,
-                    isDarkMode,
-                    textColor,
-                  ),
-
-                  const SizedBox(height: 18),
-
-                  // Personal Information Section
-                  _buildSection(
-                    'Personal Information',
-                    [
-                      _buildInfoRow('Aadhar Number',
-                          _formatAadhar(profileLogic.profileData?['Aadhar_Number__c']),
-                          Icons.badge, textColor, subtitleColor),
-                      _buildInfoRow('PAN Card',
-                          _formatValue(profileLogic.profileData?['PAN_Card__c']),
-                          Icons.credit_card_outlined, textColor, subtitleColor),
-                      _buildInfoRow('Date of Birth',
-                          _formatDate(profileLogic.profileData?['Date_of_Birth__c']),
-                          Icons.cake, textColor, subtitleColor),
-                      _buildInfoRow('Work Location',
-                          _formatValue(profileLogic.profileData?['Work_Location__c']),
-                          Icons.location_on, textColor, subtitleColor),
-                    ],
-                    cardColor,
-                    isDarkMode,
-                    textColor,
-                  ),
-
-                  const SizedBox(height: 18),
-
-                  // Employment Information Section
-                  _buildSection(
-                    'Employment Information',
-                    [
-                      _buildInfoRow('Joining Date',
-                          _formatDate(profileLogic.profileData?['Joining_Date__c']),
-                          Icons.date_range, textColor, subtitleColor),
-                      _buildInfoRow('Reporting Manager',
-                          _formatValue(profileLogic.profileData?['Reporting_Manager_Formula__c']),
-                          Icons.supervisor_account, textColor, subtitleColor),
-                      _buildInfoRow('Annual Review Date',
-                          _formatDate(profileLogic.profileData?['Annual_Review_Date__c']),
-                          Icons.event_note, textColor, subtitleColor),
-                      _buildInfoRow('Department',
-                          _formatValue(profileLogic.profileData?['Department__c']),
-                          Icons.business, textColor, subtitleColor),
-                    ],
-                    cardColor,
-                    isDarkMode,
-                    textColor,
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // Logout Button
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _showLogoutDialog,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 4,
-                        shadowColor: Colors.transparent,
-                        side: const BorderSide(
-                          color: Color(0xFF0000),
-                          width: 1,
-                        ),
-                      ),
-                      child: const Text(
-                        'Logout',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 24),
-                ],
-              ),
-            ),
-          ),
-          bottomNavigationBar: BottomNavigationBar(
-            type: BottomNavigationBarType.fixed,
-            backgroundColor: cardColor,
-            selectedItemColor: const Color(0xFF667EEA),
-            unselectedItemColor: isDarkMode ? Colors.grey[500] : Colors.grey[400],
-            currentIndex: 3,
-            elevation: 10,
-            onTap: (index) => _onBottomNavTap(context, index),
-            items: const [
-              BottomNavigationBarItem(
-                icon: Icon(Icons.home),
-                activeIcon: Icon(Icons.home_filled),
-                label: 'Home',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.event_available_outlined),
-                activeIcon: Icon(Icons.event_available),
-                label: 'Leave',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.calendar_month),
-                activeIcon: Icon(Icons.calendar_month),
-                label: 'Attendance',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.person_outline),
-                activeIcon: Icon(Icons.person),
-                label: 'Profile',
-              ),
-            ],
-          ),
+              ? _buildNoDataState(textColor, subtitleColor)
+              : _buildProfileContent(profileLogic.profileData!, cardColor, isDarkMode, textColor, subtitleColor),
+          bottomNavigationBar: _buildBottomNavigationBar(cardColor, isDarkMode),
         );
       },
     );
   }
 
-  Widget _buildSection(String title, List<Widget> rows, Color cardColor, bool isDarkMode, Color textColor) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w600,
-            color: textColor,
-          ),
+  Widget _buildErrorState(String errorMessage, Color textColor, Color? subtitleColor) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 64, color: Colors.red),
+            const SizedBox(height: 16),
+            Text('Error Loading Profile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: textColor)),
+            const SizedBox(height: 8),
+            Text(errorMessage, style: TextStyle(fontSize: 14, color: subtitleColor), textAlign: TextAlign.center),
+            const SizedBox(height: 16),
+            Text(
+              'Employee ID: ${widget.employeeId ?? profileLogic.employeeId ?? 'Not available'}',
+              style: TextStyle(fontSize: 12, color: subtitleColor, fontStyle: FontStyle.italic),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(onPressed: () => profileLogic.loadProfile(), child: const Text('Retry')),
+          ],
         ),
-        const SizedBox(height: 12),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: cardColor,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.08),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            children: _buildRowsWithDividers(rows, isDarkMode),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
-  List<Widget> _buildRowsWithDividers(List<Widget> rows, bool isDarkMode) {
-    List<Widget> widgets = [];
-    for (int i = 0; i < rows.length; i++) {
-      widgets.add(rows[i]);
-      if (i < rows.length - 1) {
-        widgets.add(const SizedBox(height: 16));
-        widgets.add(_buildDivider(isDarkMode));
-        widgets.add(const SizedBox(height: 16));
-      }
-    }
-    return widgets;
-  }
-
-  Widget _buildInfoRow(String label, String value, IconData icon, Color textColor, Color? subtitleColor) {
-    return Row(
-      children: [
-        Container(
-          width: 60,
-          height: 60,
-          decoration: BoxDecoration(
-            color: const Color(0xFF667EEA).withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(
-            icon,
-            color: const Color(0xFF667EEA),
-            size: 30,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: textColor,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: subtitleColor,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ),
-        ),
-      ],
+  Widget _buildNoDataState(Color textColor, Color? subtitleColor) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.person_off, size: 64, color: subtitleColor),
+          const SizedBox(height: 16),
+          Text('No Profile Data', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: textColor)),
+          const SizedBox(height: 8),
+          Text('Unable to load profile information', style: TextStyle(fontSize: 14, color: subtitleColor)),
+          const SizedBox(height: 16),
+          ElevatedButton(onPressed: () => profileLogic.loadProfile(), child: const Text('Reload')),
+        ],
+      ),
     );
   }
 
-  Widget _buildDivider(bool isDarkMode) {
-    return Divider(
-      color: isDarkMode ? Colors.grey[700] : Colors.grey[200],
-      thickness: 1,
-      height: 1,
+  Widget _buildProfileContent(Map<String, dynamic> profileData, Color cardColor, bool isDarkMode, Color textColor, Color? subtitleColor) {
+    return RefreshIndicator(
+      onRefresh: () => profileLogic.loadProfile(),
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildProfileHeader(profileData, cardColor, textColor),
+            const SizedBox(height: 18),
+            _buildPerformanceFlag(profileData['Performance_Flag__c'], textColor, cardColor, isDarkMode),
+            _buildSection('Contact Information', [
+              {'label': 'Phone', 'value': _formatValue(profileData['Phone__c']), 'icon': Icons.phone},
+              {'label': 'Email', 'value': _formatValue(profileData['Email__c']), 'icon': Icons.email},
+            ], cardColor, isDarkMode, textColor, subtitleColor),
+            const SizedBox(height: 18),
+            _buildSection('Banking Information', [
+              {'label': 'Bank Name', 'value': _formatValue(profileData['Bank_Name__c']), 'icon': Icons.account_balance},
+              {'label': 'IFSC Code', 'value': _formatValue(profileData['IFSC_Code__c']), 'icon': Icons.code},
+              {'label': 'Account Number', 'value': _formatValue(profileData['Bank_Account_Number__c']), 'icon': Icons.credit_card},
+            ], cardColor, isDarkMode, textColor, subtitleColor),
+            const SizedBox(height: 18),
+            _buildSection('Personal Information', [
+              {'label': 'Aadhar Number', 'value': _formatAadhar(profileData['Aadhar_Number__c']), 'icon': Icons.badge},
+              {'label': 'PAN Card', 'value': _formatValue(profileData['PAN_Card__c']), 'icon': Icons.credit_card_outlined},
+              {'label': 'Date of Birth', 'value': _formatDate(profileData['Date_of_Birth__c']), 'icon': Icons.cake},
+              {'label': 'Work Location', 'value': _formatValue(profileData['Work_Location__c']), 'icon': Icons.location_on},
+            ], cardColor, isDarkMode, textColor, subtitleColor),
+            const SizedBox(height: 18),
+            _buildSection('Employment Information', [
+              {'label': 'Joining Date', 'value': _formatDate(profileData['Joining_Date__c']), 'icon': Icons.date_range},
+              {'label': 'Reporting Manager', 'value': _formatValue(profileData['Reporting_Manager_Formula__c']), 'icon': Icons.supervisor_account},
+              {'label': 'Annual Review Date', 'value': _formatDate(profileData['Annual_Review_Date__c']), 'icon': Icons.event_note},
+              {'label': 'Department', 'value': _formatValue(profileData['Department__c']), 'icon': Icons.business},
+            ], cardColor, isDarkMode, textColor, subtitleColor),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => LogoutLogic.showLogoutDialog(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  elevation: 4,
+                ),
+                child: const Text('Logout', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              ),
+            ),
+            const SizedBox(height: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomNavigationBar(Color cardColor, bool isDarkMode) {
+    return BottomNavigationBar(
+      type: BottomNavigationBarType.fixed,
+      backgroundColor: cardColor,
+      selectedItemColor: const Color(0xFF667EEA),
+      unselectedItemColor: isDarkMode ? Colors.grey[500] : Colors.grey[400],
+      currentIndex: 3,
+      elevation: 10,
+      onTap: (index) => _onBottomNavTap(context, index),
+      items: const [
+        BottomNavigationBarItem(icon: Icon(Icons.home), activeIcon: Icon(Icons.home_filled), label: 'Home'),
+        BottomNavigationBarItem(icon: Icon(Icons.event_available_outlined), activeIcon: Icon(Icons.event_available), label: 'Leave'),
+        BottomNavigationBarItem(icon: Icon(Icons.calendar_month), label: 'Attendance'),
+        BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Profile'),
+      ],
     );
   }
 }

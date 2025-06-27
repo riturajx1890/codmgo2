@@ -34,16 +34,17 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
   @override
   void initState() {
     super.initState();
+    _initializeControllers();
+    _initializeDashboard();
+  }
 
-    // Initialize dashboard logic
+  void _initializeControllers() {
     dashboardLogic = DashboardLogic();
     dashboardLogic.addListener(_onDashboardStateChanged);
 
-    // Initialize clock in/out logic
     clockInOutLogic = ClockInOutLogic();
     clockInOutLogic.addListener(_onClockInOutStateChanged);
 
-    // Initialize animation controller for RecentActivity
     scaleAnimationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -53,12 +54,8 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
       curve: Curves.easeInOut,
     );
     scaleAnimationController.forward();
-
-    // Initialize dashboard with user data
-    _initializeDashboard();
   }
 
-  /// Initialize dashboard with user data
   Future<void> _initializeDashboard() async {
     await dashboardLogic.initializeDashboard(
       firstName: widget.firstName,
@@ -67,54 +64,31 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
     );
   }
 
-  /// Handle dashboard state changes
   void _onDashboardStateChanged() {
-    if (mounted) {
-      setState(() {});
-    }
+    if (mounted) setState(() {});
   }
 
-  /// Handle clock in/out state changes
   void _onClockInOutStateChanged() {
-    if (mounted) {
-      setState(() {});
-    }
+    if (mounted) setState(() {});
   }
 
-  /// Handle refresh action
   Future<void> _onRefresh() async {
-    // Add haptic feedback for refresh
     HapticFeedback.lightImpact();
     await dashboardLogic.onRefresh(context);
   }
 
-  /// Handle bottom navigation tap
   void _onBottomNavTap(int index) {
     dashboardLogic.onBottomNavTap(index);
 
-    // Handle navigation based on index
+    Widget? targetScreen;
     switch (index) {
       case 0:
-        break;
+        return;
       case 1:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => LeaveDashboardPage(employeeId: dashboardLogic.displayEmployeeId),
-          ),
-        ).then((_) {
-          dashboardLogic.resetBottomNavToHome();
-        });
+        targetScreen = LeaveDashboardPage(employeeId: dashboardLogic.displayEmployeeId);
         break;
       case 2:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => AttendanceHistoryPage(employeeId: dashboardLogic.displayEmployeeId),
-          ),
-        ).then((_) {
-          dashboardLogic.resetBottomNavToHome();
-        });
+        targetScreen = AttendanceHistoryPage(employeeId: dashboardLogic.displayEmployeeId);
         break;
       case 3:
         if (dashboardLogic.accessToken == null || dashboardLogic.instanceUrl == null) {
@@ -123,31 +97,30 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
           );
           return;
         }
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProfilePage(),
-          ),
-        ).then((_) {
-          dashboardLogic.resetBottomNavToHome();
-        });
+        targetScreen = ProfilePage();
         break;
+    }
+
+    if (targetScreen != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => targetScreen!),
+      ).then((_) => dashboardLogic.resetBottomNavToHome());
     }
   }
 
-  /// Handle clock in tap
   Future<void> _onClockInTap() async {
-    // Add haptic feedback
     HapticFeedback.mediumImpact();
 
-    // Check if user is in range
     if (!dashboardLogic.isWithinRadius) {
       _showRangeErrorDialog('Clock In', 'You are outside the allowed office radius.');
       return;
     }
 
-    // Check if user can clock in (only once per day)
-    if (!dashboardLogic.canClockIn()) {
+    // Check if user has already clocked in today
+    if (clockInOutLogic.status == ClockStatus.clockedIn ||
+        clockInOutLogic.status == ClockStatus.clockedOut ||
+        !dashboardLogic.canClockIn()) {
       _showClockInRestrictedDialog();
       return;
     }
@@ -155,115 +128,73 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
     await dashboardLogic.onClockIn(context);
   }
 
-  /// Handle clock out tap
   Future<void> _onClockOutTap() async {
-    // Add haptic feedback
     HapticFeedback.mediumImpact();
-
-    // Check if user is in range
     if (!dashboardLogic.isWithinRadius) {
       _showRangeErrorDialog('Clock Out', 'You are outside the allowed office radius.');
       return;
     }
 
-    // Check if user can clock out (45 minutes after clock in)
+    // Check if user is clocked in first
+    if (clockInOutLogic.status != ClockStatus.clockedIn) {
+      _showClockInRequiredDialog();
+      return;
+    }
+
     if (!dashboardLogic.canClockOut()) {
       _showClockOutRestrictedDialog();
       return;
     }
-
     await dashboardLogic.onClockOut(context);
   }
 
-  /// Show range error dialog
   void _showRangeErrorDialog(String action, String message) {
-    final theme = Theme.of(context);
-    final isDarkMode = theme.brightness == Brightness.dark;
-    final cardColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
-    final titleColor = isDarkMode ? Colors.white : const Color(0xFF2D3748);
-    final subtitleColor = isDarkMode ? Colors.white70 : Colors.grey[600];
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black.withOpacity(0.7),
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: cardColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(40),
-                ),
-                child: const Icon(
-                  Icons.location_off,
-                  color: Colors.red,
-                  size: 40,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                '$action Failed!',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: titleColor,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: subtitleColor,
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF667EEA),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    shadowColor: Colors.transparent,
-                    side: const BorderSide(
-                      color: Color(0xFF667EEA),
-                      width: 1,
-                    ),
-                  ),
-                  child: const Text(
-                    'Done',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+    _showCustomDialog(
+      icon: Icons.location_off,
+      iconColor: Colors.red,
+      title: '$action Failed!',
+      message: message,
+      buttonText: 'Done',
     );
   }
 
   void _showClockInRequiredDialog() {
+    _showCustomDialog(
+      icon: Icons.access_time,
+      iconColor: Colors.orange,
+      title: 'Clock Out Failed!',
+      message: 'Please clock in before attempting to clock out.',
+      buttonText: 'Got It',
+    );
+  }
+
+  void _showClockInRestrictedDialog() {
+    _showCustomDialog(
+      icon: Icons.error_outline,
+      iconColor: Colors.orange,
+      title: 'Clock In Failed!',
+      message: 'You have already clocked in today.\nYou can only clock in once per day.',
+      buttonText: 'Done',
+    );
+  }
+
+  void _showClockOutRestrictedDialog() {
+    _showCustomDialog(
+      icon: Icons.timer,
+      iconColor: Colors.orange,
+      title: 'Clock Out Failed!',
+      message: 'You can only clock out after 45 minutes\nof clocking in. Please try again later.',
+      buttonText: 'Done',
+    );
+  }
+
+  void _showCustomDialog({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String message,
+    required String buttonText,
+  }) {
     final theme = Theme.of(context);
     final isDarkMode = theme.brightness == Brightness.dark;
     final cardColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
@@ -277,261 +208,63 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: cardColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(40),
-                ),
-                child: const Icon(
-                  Icons.access_time,
-                  color: Colors.orange,
-                  size: 40,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Clock Out Failed!',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: titleColor,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Please clock in before attempting to clock out.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: subtitleColor,
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF667EEA),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    shadowColor: Colors.transparent,
-                    side: const BorderSide(
-                      color: Color(0xFF667EEA),
-                      width: 1,
-                    ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: SizedBox(
+            width: 200, // Fixed width for consistent size
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: iconColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(40),
                   ),
-                  child: const Text(
-                    'Got It',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
+                  child: Icon(icon, color: iconColor, size: 40),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: titleColor,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14, color: subtitleColor),
+                ),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF667EEA),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      shadowColor: Colors.transparent,
+                      side: const BorderSide(color: Color(0xFF667EEA), width: 1),
+                    ),
+                    child: Text(
+                      buttonText,
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
     );
   }
 
-
-  /// Show clock in restricted dialog
-  void _showClockInRestrictedDialog() {
-    final theme = Theme.of(context);
-    final isDarkMode = theme.brightness == Brightness.dark;
-    final cardColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
-    final titleColor = isDarkMode ? Colors.white : const Color(0xFF2D3748);
-    final subtitleColor = isDarkMode ? Colors.white70 : Colors.grey[600];
-
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierColor: Colors.black.withOpacity(0.7), // Darker background
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: cardColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(40),
-                ),
-                child: const Icon(
-                  Icons.error_outline,
-                  color: Colors.orange,
-                  size: 40,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Clock In Failed!',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: titleColor,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'You have already clocked in today.\nYou can only clock in once per day.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: subtitleColor,
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF667EEA),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    shadowColor: Colors.transparent,
-                    side: const BorderSide(
-                      color: Color(0xFF667EEA),
-                      width: 1,
-                    ),
-                  ),
-                  child: const Text(
-                    'Done',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-
-  /// Show clock out restricted dialog
-  void _showClockOutRestrictedDialog() {
-    final theme = Theme.of(context);
-    final isDarkMode = theme.brightness == Brightness.dark;
-    final cardColor = isDarkMode ? const Color(0xFF1E1E1E) : Colors.white;
-    final titleColor = isDarkMode ? Colors.white : const Color(0xFF2D3748);
-    final subtitleColor = isDarkMode ? Colors.white70 : Colors.grey[600];
-
-    final remainingTime = dashboardLogic.getRemainingTimeForClockOut();
-
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      barrierColor: Colors.black.withOpacity(0.7), // Darker background
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: cardColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(40),
-                ),
-                child: const Icon(
-                  Icons.timer,
-                  color: Colors.orange,
-                  size: 40,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Clock Out Failed!',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: titleColor,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'You can only clock out after 45 minutes\nof clocking in. Please try again later.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: subtitleColor,
-                ),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF667EEA),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    shadowColor: Colors.transparent,
-                    side: const BorderSide(
-                      color: Color(0xFF667EEA),
-                      width: 1,
-                    ),
-                  ),
-                  child: const Text(
-                    'Done',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-
-  /// Handle location icon tap
   void _onLocationIconTap() {
     dashboardLogic.onLocationIconTap(context);
   }
@@ -554,7 +287,6 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
 
   @override
   void dispose() {
-    // Remove listener and dispose dashboard logic
     dashboardLogic.removeListener(_onDashboardStateChanged);
     dashboardLogic.dispose();
     clockInOutLogic.removeListener(_onClockInOutStateChanged);
@@ -573,7 +305,6 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
     final textColor = isDarkMode ? Colors.white : const Color(0xFF2D3748);
     final subtitleColor = isDarkMode ? Colors.white70 : Colors.grey[600];
 
-    // Format current date and time
     final now = DateTime.now();
     final dateFormat = DateFormat('EEEE, MMM d yyyy');
     final timeFormat = DateFormat('h:mm a');
@@ -582,284 +313,24 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
 
     return Scaffold(
       backgroundColor: backgroundColor,
-      appBar: AppBar(
-        backgroundColor: cardColor,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        toolbarHeight: 63,
-        title: Row(
-          children: [
-            // App Icon
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: const Color(0xFF667EEA).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.person,
-                color: Color(0xFF667EEA),
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 16),
-            // User Info Section
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Hello,',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: subtitleColor,
-                      fontWeight: FontWeight.normal,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${dashboardLogic.displayFirstName.isNotEmpty ? dashboardLogic.displayFirstName : 'User'} ${dashboardLogic.displayLastName}',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: textColor,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Location Status Section
-            GestureDetector(
-              onTap: _onLocationIconTap,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                decoration: BoxDecoration(
-                  color: dashboardLogic.getLocationStatusColor(isDarkMode).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(25),
-                  border: Border.all(
-                    color: dashboardLogic.getLocationStatusColor(isDarkMode).withOpacity(0.3),
-                    width: 1,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      dashboardLogic.getLocationIcon(),
-                      size: 20,
-                      color: dashboardLogic.getLocationStatusColor(isDarkMode),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      dashboardLogic.getLocationHeaderText(),
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: dashboardLogic.getLocationStatusColor(isDarkMode),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+      appBar: _buildAppBar(cardColor, subtitleColor, textColor, isDarkMode),
       body: RefreshIndicator(
         onRefresh: _onRefresh,
         child: ScrollConfiguration(
-          behavior: const ScrollBehavior().copyWith(
-            scrollbars: false,
-          ),
+          behavior: const ScrollBehavior().copyWith(scrollbars: false),
           child: SingleChildScrollView(
             controller: _scrollController,
             padding: const EdgeInsets.all(16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Today's Attendance Card - from attendance history
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF667EEA).withOpacity(0.3),
-                        blurRadius: 15,
-                        offset: const Offset(0, 8),
-                      ),
-                      BoxShadow(
-                        color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.1),
-                        blurRadius: 8,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        formattedTime,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 26,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        formattedDate,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          _buildClockStatCard('Clock In', _getClockInTime(), Icons.login),
-                          const SizedBox(width: 18),
-                          _buildClockStatCard('Clock Out', _getClockOutTime(), Icons.logout),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
+                _buildTodaysAttendanceCard(formattedTime, formattedDate, isDarkMode),
                 const SizedBox(height: 20),
-
-                // Upcoming Leave Section
-                Text(
-                  'Upcoming Leave',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: textColor,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: cardColor,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.08),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                      BoxShadow(
-                        color: isDarkMode ? Colors.black.withOpacity(0.1) : Colors.black.withOpacity(0.03),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 60,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF667EEA).withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Icon(
-                          Icons.event_available,
-                          color: Color(0xFF667EEA),
-                          size: 30,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'No upcoming leaves',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: textColor,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'You have no scheduled leaves',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: subtitleColor,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
+                _buildUpcomingLeaveSection(textColor, cardColor, isDarkMode, subtitleColor),
                 const SizedBox(height: 20),
-
-                // Quick Actions Section
-                Text(
-                  'Quick Actions',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: textColor,
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildActionCard(
-                        context,
-                        'Clock In',
-                        Icons.login,
-                        Colors.green,
-                        isDarkMode,
-                        _onClockInTap,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildActionCard(
-                        context,
-                        'Clock Out',
-                        Icons.logout,
-                        Colors.red,
-                        isDarkMode,
-                        _onClockOutTap,
-                      ),
-                    ),
-                  ],
-                ),
-
+                _buildQuickActionsSection(textColor, isDarkMode),
                 const SizedBox(height: 20),
-
-                // Recent Activity Section
-                RecentActivity(
-                  textColor: textColor,
-                  cardColor: cardColor,
-                  isDarkMode: isDarkMode,
-                  scaleAnimation: scaleAnimation,
-                  scaleAnimationController: scaleAnimationController,
-                  employeeId: widget.employeeId,
-                ),
-
+                _buildRecentActivitySection(textColor, cardColor, isDarkMode),
                 const SizedBox(height: 80),
               ],
             ),
@@ -867,37 +338,258 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
         ),
       ),
       extendBody: true,
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: cardColor,
-        selectedItemColor: const Color(0xFF667EEA),
-        unselectedItemColor: isDarkMode ? Colors.grey[500] : Colors.grey[400],
-        currentIndex: dashboardLogic.currentIndex,
-        elevation: 10,
-        onTap: _onBottomNavTap,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            activeIcon: Icon(Icons.home),
-            label: 'Home',
+      bottomNavigationBar: _buildBottomNavigationBar(cardColor, isDarkMode),
+    );
+  }
+
+  PreferredSizeWidget _buildAppBar(Color cardColor, Color? subtitleColor, Color textColor, bool isDarkMode) {
+    return AppBar(
+      backgroundColor: cardColor,
+      elevation: 0,
+      automaticallyImplyLeading: false,
+      toolbarHeight: 63,
+      title: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: const Color(0xFF667EEA).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.person, color: Color(0xFF667EEA), size: 24),
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.event_available_outlined),
-            activeIcon: Icon(Icons.event_available),
-            label: 'Leave',
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Hello,',
+                  style: TextStyle(fontSize: 14, color: subtitleColor, fontWeight: FontWeight.normal),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${dashboardLogic.displayFirstName.isNotEmpty ? dashboardLogic.displayFirstName : 'User'} ${dashboardLogic.displayLastName}',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
+                ),
+              ],
+            ),
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_month),
-            activeIcon: Icon(Icons.calendar_month),
-            label: 'Attendance',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: 'Profile',
+          GestureDetector(
+            onTap: _onLocationIconTap,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: dashboardLogic.getLocationStatusColor(isDarkMode).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(25),
+                border: Border.all(
+                  color: dashboardLogic.getLocationStatusColor(isDarkMode).withOpacity(0.3),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    dashboardLogic.getLocationIcon(),
+                    size: 20,
+                    color: dashboardLogic.getLocationStatusColor(isDarkMode),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    dashboardLogic.getLocationHeaderText(),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: dashboardLogic.getLocationStatusColor(isDarkMode),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildTodaysAttendanceCard(String formattedTime, String formattedDate, bool isDarkMode) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF667EEA).withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+          BoxShadow(
+            color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            formattedTime,
+            style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            formattedDate,
+            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              _buildClockStatCard('Clock In', _getClockInTime(), Icons.login),
+              const SizedBox(width: 18),
+              _buildClockStatCard('Clock Out', _getClockOutTime(), Icons.logout),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUpcomingLeaveSection(Color textColor, Color cardColor, bool isDarkMode, Color? subtitleColor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Upcoming Leave',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: textColor),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.08),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+              BoxShadow(
+                color: isDarkMode ? Colors.black.withOpacity(0.1) : Colors.black.withOpacity(0.03),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF667EEA).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.event_available, color: Color(0xFF667EEA), size: 30),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'No upcoming leaves',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: textColor),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'You have no scheduled leaves',
+                      style: TextStyle(fontSize: 14, color: subtitleColor),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickActionsSection(Color textColor, bool isDarkMode) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Quick Actions',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: textColor),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _buildActionCard(
+                context,
+                'Clock In',
+                Icons.login,
+                Colors.green,
+                isDarkMode,
+                _onClockInTap,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildActionCard(
+                context,
+                'Clock Out',
+                Icons.logout,
+                Colors.red,
+                isDarkMode,
+                _onClockOutTap,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRecentActivitySection(Color textColor, Color cardColor, bool isDarkMode) {
+    return RecentActivity(
+      textColor: textColor,
+      cardColor: cardColor,
+      isDarkMode: isDarkMode,
+      scaleAnimation: scaleAnimation,
+      scaleAnimationController: scaleAnimationController,
+      employeeId: widget.employeeId,
+    );
+  }
+
+  Widget _buildBottomNavigationBar(Color cardColor, bool isDarkMode) {
+    return BottomNavigationBar(
+      type: BottomNavigationBarType.fixed,
+      backgroundColor: cardColor,
+      selectedItemColor: const Color(0xFF667EEA),
+      unselectedItemColor: isDarkMode ? Colors.grey[500] : Colors.grey[400],
+      currentIndex: dashboardLogic.currentIndex,
+      elevation: 10,
+      onTap: _onBottomNavTap,
+      items: const [
+        BottomNavigationBarItem(icon: Icon(Icons.home), activeIcon: Icon(Icons.home), label: 'Home'),
+        BottomNavigationBarItem(icon: Icon(Icons.event_available_outlined), activeIcon: Icon(Icons.event_available), label: 'Leave'),
+        BottomNavigationBarItem(icon: Icon(Icons.calendar_month), activeIcon: Icon(Icons.calendar_month), label: 'Attendance'),
+        BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Profile'),
+      ],
     );
   }
 
@@ -920,7 +612,7 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
                   title,
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.9),
-                    fontSize: 16, // Slightly smaller for label
+                    fontSize: 16,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -931,7 +623,7 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
               time,
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 24, // Bigger for time
+                fontSize: 24,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -987,11 +679,7 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
             Text(
               title,
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: textColor,
-              ),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: textColor),
             ),
           ],
         ),

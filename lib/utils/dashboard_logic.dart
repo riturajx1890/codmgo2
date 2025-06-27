@@ -11,59 +11,49 @@ class DashboardLogic extends ChangeNotifier {
   final LocationLogic _locationLogic = LocationLogic();
   late final ClockInOutController _clockInOutController;
 
-  // Location-related properties
+  // Location state
   bool _isLocationChecking = false;
   bool _isWithinRadius = false;
   String _locationMessage = '';
   double _distance = 0.0;
 
-  // Dashboard state properties
+  // Dashboard state
   int _currentIndex = 0;
   bool _isRefreshing = false;
   String? _accessToken;
   String? _instanceUrl;
 
-  // User data properties
+  // User data
   String _displayFirstName = '';
   String _displayLastName = '';
   String _displayEmployeeId = '';
-
-  // Original constructor parameters (fallback)
   String _originalFirstName = '';
   String _originalLastName = '';
   String _originalEmployeeId = '';
 
-  // Clock timing properties
+  // Clock timing
   DateTime? _lastClockInTime;
   DateTime? _lastClockOutTime;
-  static const int _minClockOutMinutes = 5; // 45 minutes
-  static const int _clockInCooldownMinutes = 1; // 18 hours
+  static const int _minClockOutMinutes = 5;
+  static const int _clockInCooldownMinutes = 1;
 
-  // Getters for location
+  // Getters
   bool get isLocationChecking => _isLocationChecking;
   bool get isWithinRadius => _isWithinRadius;
   String get locationMessage => _locationMessage;
   double get distance => _distance;
-
-  // Getters for dashboard state
   int get currentIndex => _currentIndex;
   bool get isRefreshing => _isRefreshing;
   String? get accessToken => _accessToken;
   String? get instanceUrl => _instanceUrl;
-
-  // Getters for user data
   String get displayFirstName => _displayFirstName;
   String get displayLastName => _displayLastName;
   String get displayEmployeeId => _displayEmployeeId;
-
-  // Getter for clock controller
   ClockInOutController get clockInOutController => _clockInOutController;
-
-  // Getters for clock timing
   DateTime? get lastClockInTime => _lastClockInTime;
   DateTime? get lastClockOutTime => _lastClockOutTime;
 
-  /// Initialize the dashboard logic with user data
+  /// Initialize dashboard with user data
   Future<void> initializeDashboard({
     required String firstName,
     required String lastName,
@@ -71,16 +61,13 @@ class DashboardLogic extends ChangeNotifier {
   }) async {
     _logger.i('Initializing dashboard logic');
 
-    // Store original parameters as fallback
     _originalFirstName = firstName;
     _originalLastName = lastName;
     _originalEmployeeId = employeeId;
 
-    // Initialize clock controller
     _clockInOutController = ClockInOutController();
     _clockInOutController.addListener(_onClockStatusChanged);
 
-    // Load user data, auth data, initialize location check, and clock times
     await Future.wait([
       _loadUserData(),
       _loadAuthData(),
@@ -93,21 +80,14 @@ class DashboardLogic extends ChangeNotifier {
   Future<void> _loadUserData() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      _displayFirstName = prefs.getString('first_name') ?? _originalFirstName;
+      _displayLastName = prefs.getString('last_name') ?? _originalLastName;
+      _displayEmployeeId = prefs.getString('employee_id') ?? _originalEmployeeId;
 
-      // Get data from SharedPreferences first, fallback to original parameters
-      final firstName = prefs.getString('first_name') ?? _originalFirstName;
-      final lastName = prefs.getString('last_name') ?? _originalLastName;
-      final employeeId = prefs.getString('employee_id') ?? _originalEmployeeId;
-
-      _displayFirstName = firstName;
-      _displayLastName = lastName;
-      _displayEmployeeId = employeeId;
-
-      _logger.i('Loaded user data: $firstName $lastName ($employeeId)');
+      _logger.i('Loaded user data: $_displayFirstName $_displayLastName ($_displayEmployeeId)');
       notifyListeners();
     } catch (e) {
       _logger.e('Error loading user data: $e');
-      // Fallback to original parameters if SharedPreferences fails
       _displayFirstName = _originalFirstName;
       _displayLastName = _originalLastName;
       _displayEmployeeId = _originalEmployeeId;
@@ -129,25 +109,30 @@ class DashboardLogic extends ChangeNotifier {
     }
   }
 
-  /// Load clock in/out times from SharedPreferences
+  /// Load and save clock times
   Future<void> _loadClockTimes() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final clockInTime = prefs.getString('last_clock_in_time');
       final clockOutTime = prefs.getString('last_clock_out_time');
 
-      if (clockInTime != null) {
-        _lastClockInTime = DateTime.parse(clockInTime);
-      }
-      if (clockOutTime != null) {
-        _lastClockOutTime = DateTime.parse(clockOutTime);
-      }
+      if (clockInTime != null) _lastClockInTime = DateTime.parse(clockInTime);
+      if (clockOutTime != null) _lastClockOutTime = DateTime.parse(clockOutTime);
 
-      // Sync with controller
       _refreshClockTimes();
       notifyListeners();
     } catch (e) {
       _logger.e('Error loading clock times: $e');
+    }
+  }
+
+  Future<void> _saveClockTime(String key, DateTime? time) async {
+    if (time == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(key, time.toIso8601String());
+    } catch (e) {
+      _logger.e('Error saving clock time: $e');
     }
   }
 
@@ -157,23 +142,17 @@ class DashboardLogic extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Check location radius and update state
+  /// Check location radius
   Future<void> checkLocationRadius() async {
     _logger.i('Starting location radius check');
-
-    // Set checking state
     _isLocationChecking = true;
     notifyListeners();
 
     try {
-      // Get location result
       final result = await _locationLogic.isWithinRadius();
-
-      // Update state with results
       _isWithinRadius = result['isInRadius'] ?? false;
       _locationMessage = result['message'] ?? 'Unknown location status';
       _distance = result['distance'] ?? 0.0;
-
       _logger.i('Location check completed: $_locationMessage');
     } catch (e, stackTrace) {
       _logger.e('Error checking location radius: $e', error: e, stackTrace: stackTrace);
@@ -181,7 +160,6 @@ class DashboardLogic extends ChangeNotifier {
       _locationMessage = 'Unable to get location. Please try again.';
       _distance = 0.0;
     } finally {
-      // Reset checking state
       _isLocationChecking = false;
       notifyListeners();
     }
@@ -201,112 +179,71 @@ class DashboardLogic extends ChangeNotifier {
     final userEmail = prefs.getString('user_email') ?? 'default@example.com';
     await _clockInOutController.initializeEmployeeData(userEmail);
 
-    // Reload user data and clock times
-    await Future.wait([
-      _loadUserData(),
-      _loadClockTimes(),
-    ]);
-
-    // Refresh clock in/out times from controller
+    await Future.wait([_loadUserData(), _loadClockTimes()]);
     _refreshClockTimes();
-
     await Future.delayed(const Duration(milliseconds: 2000));
 
     _isRefreshing = false;
     notifyListeners();
 
-    // Show location status after refresh
     Future.delayed(const Duration(milliseconds: 200), () {
       showLocationSnackbar(context);
     });
   }
 
-  /// Handle bottom navigation tap
+  /// Navigation methods
   void onBottomNavTap(int index) {
     _currentIndex = index;
     notifyListeners();
   }
 
-  /// Reset bottom navigation to home
   void resetBottomNavToHome() {
     _currentIndex = 0;
     notifyListeners();
   }
 
-  /// Handle clock in action
+  /// Clock in/out actions
   Future<void> onClockIn(BuildContext context) async {
-    if (_clockInOutController.status != ClockStatus.clockedIn) {
-      if (!canClockIn()) {
-        return; // The popup is handled in the UI layer (DashboardPage)
-      }
+    if (_clockInOutController.status != ClockStatus.clockedIn && canClockIn()) {
       await _clockInOutController.clockIn(context);
       _lastClockInTime = _clockInOutController.inTime;
-      // Save to SharedPreferences
-      final prefs = await SharedPreferences.getInstance();
-      if (_lastClockInTime != null) {
-        await prefs.setString('last_clock_in_time', _lastClockInTime!.toIso8601String());
-      }
+      await _saveClockTime('last_clock_in_time', _lastClockInTime);
       notifyListeners();
     }
   }
 
-  /// Handle clock out action
   Future<void> onClockOut(BuildContext context) async {
-    if (_clockInOutController.status != ClockStatus.clockedOut) {
-      if (!canClockOut()) {
-        return; // The popup is handled in the UI layer (DashboardPage)
-      }
+    if (_clockInOutController.status != ClockStatus.clockedOut && canClockOut()) {
       await _clockInOutController.clockOut(context);
       _lastClockOutTime = _clockInOutController.outTime;
-      // Save to SharedPreferences
-      final prefs = await SharedPreferences.getInstance();
-      if (_lastClockOutTime != null) {
-        await prefs.setString('last_clock_out_time', _lastClockOutTime!.toIso8601String());
-      }
+      await _saveClockTime('last_clock_out_time', _lastClockOutTime);
       notifyListeners();
     }
   }
 
-  /// Check if user can clock in (only once every 1080 minutes)
+  /// Clock validation methods
   bool canClockIn() {
     if (_lastClockInTime == null) return true;
-
-    final now = DateTime.now();
-    final lastClockIn = _lastClockInTime!;
-    final minutesSinceLastClockIn = now.difference(lastClockIn).inMinutes;
-
+    final minutesSinceLastClockIn = DateTime.now().difference(_lastClockInTime!).inMinutes;
     return minutesSinceLastClockIn >= _clockInCooldownMinutes;
   }
 
-  /// Check if user can clock out (only after 45 minutes of clocking in)
   bool canClockOut() {
     if (_lastClockInTime == null || _clockInOutController.status == ClockStatus.clockedOut) {
       return false;
     }
-
-
-    final now = DateTime.now();
-    final lastClockIn = _lastClockInTime!;
-    final minutesSinceClockIn = now.difference(lastClockIn).inMinutes;
-
+    final minutesSinceClockIn = DateTime.now().difference(_lastClockInTime!).inMinutes;
     return minutesSinceClockIn >= _minClockOutMinutes;
   }
 
-  /// Get remaining time until user can clock out
   int getRemainingTimeForClockOut() {
     if (_lastClockInTime == null) return _minClockOutMinutes;
-
-    final now = DateTime.now();
-    final lastClockIn = _lastClockInTime!;
-    final minutesSinceClockIn = now.difference(lastClockIn).inMinutes;
+    final minutesSinceClockIn = DateTime.now().difference(_lastClockInTime!).inMinutes;
     final remainingMinutes = _minClockOutMinutes - minutesSinceClockIn;
-
     return remainingMinutes > 0 ? remainingMinutes : 0;
-
   }
 
-
-  /// Refresh clock times from the controller
+  /// Refresh clock times from controller
   void _refreshClockTimes() {
     if (_clockInOutController.inTime != null) {
       _lastClockInTime = _clockInOutController.inTime;
@@ -314,68 +251,43 @@ class DashboardLogic extends ChangeNotifier {
     if (_clockInOutController.outTime != null) {
       _lastClockOutTime = _clockInOutController.outTime;
     }
-    notifyListeners();
   }
 
-  /// Get current time formatted
-  String getCurrentTime() {
-    final now = DateTime.now();
-    final hour = now.hour > 12 ? now.hour - 12 : (now.hour == 0 ? 12 : now.hour);
-    final minute = now.minute.toString().padLeft(2, '0');
+  /// Time formatting helpers
+  String _formatTime(DateTime dateTime) {
+    final hour = dateTime.hour > 12 ? dateTime.hour - 12 : (dateTime.hour == 0 ? 12 : dateTime.hour);
+    final minute = dateTime.minute.toString().padLeft(2, '0');
     return "${hour.toString().padLeft(2, '0')}:$minute";
   }
 
-  /// Get current date formatted
+  String getCurrentTime() => _formatTime(DateTime.now());
+
   String getCurrentDate() {
     final now = DateTime.now();
-    final weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
+    const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return "${weekdays[now.weekday - 1]}, ${months[now.month - 1]} ${now.day}";
   }
 
-  /// Get location status color
+  /// Location status helpers
   Color getLocationStatusColor(bool isDarkMode) {
-    if (_isLocationChecking) {
-      return Colors.blueAccent;
-    } else if (_isWithinRadius) {
-      return Colors.green;
-    } else {
-      return Colors.red;
-    }
+    if (_isLocationChecking) return Colors.blueAccent;
+    return _isWithinRadius ? Colors.green : Colors.red;
   }
 
-  /// Get location icon
   IconData getLocationIcon() {
-    if (_isLocationChecking) {
-      return Icons.location_searching;
-    } else if (_isWithinRadius) {
-      return Icons.location_on;
-    } else {
-      return Icons.location_off;
-    }
+    if (_isLocationChecking) return Icons.location_searching;
+    return _isWithinRadius ? Icons.location_on : Icons.location_off;
   }
 
-  /// Get location text
   String getLocationText() {
-    if (_isLocationChecking) {
-      return "Checking location...";
-    } else if (_isWithinRadius) {
-      return "You are in Office reach";
-    } else {
-      return "You are not in Office reach";
-    }
+    if (_isLocationChecking) return "Checking location...";
+    return _isWithinRadius ? "You are in Office reach" : "You are not in Office reach";
   }
 
-  /// Get location status for header
   String getLocationHeaderText() {
-    if (_isLocationChecking) {
-      return "Checking...";
-    } else if (_isWithinRadius) {
-      return "In Range";
-    } else {
-      return "Out of Range";
-    }
+    if (_isLocationChecking) return "Checking...";
+    return _isWithinRadius ? "In Range" : "Out of Range";
   }
 
   /// Get recent activities
@@ -383,10 +295,8 @@ class DashboardLogic extends ChangeNotifier {
     List<Map<String, dynamic>> activities = [];
 
     if (_clockInOutController.inTime != null) {
-      final inTime = _clockInOutController.inTime!;
-      final hour = inTime.hour > 12 ? inTime.hour - 12 : (inTime.hour == 0 ? 12 : inTime.hour);
       activities.add({
-        'time': "${hour.toString().padLeft(2, '0')}:${inTime.minute.toString().padLeft(2, '0')}",
+        'time': _formatTime(_clockInOutController.inTime!),
         'label': 'Clock In',
         'icon': Icons.login,
         'color': Colors.green,
@@ -394,17 +304,15 @@ class DashboardLogic extends ChangeNotifier {
     }
 
     if (_clockInOutController.outTime != null) {
-      final outTime = _clockInOutController.outTime!;
-      final hour = outTime.hour > 12 ? outTime.hour - 12 : (outTime.hour == 0 ? 12 : outTime.hour);
       activities.add({
-        'time': "${hour.toString().padLeft(2, '0')}:${outTime.minute.toString().padLeft(2, '0')}",
+        'time': _formatTime(_clockInOutController.outTime!),
         'label': 'Clock Out',
         'icon': Icons.logout,
         'color': Colors.red,
       });
     }
 
-    // Fill with placeholder if not enough activities
+    // Fill with placeholder data
     while (activities.length < 3) {
       activities.add({
         'time': '--:--',
@@ -417,98 +325,51 @@ class DashboardLogic extends ChangeNotifier {
     return activities.take(3).toList();
   }
 
-  /// Handle navigation to different pages
+  /// Navigation handler
   Future<void> navigateToPage(BuildContext context, int index) async {
-    switch (index) {
-      case 0:
-      // Home - no navigation needed
-        break;
-      case 1:
-      // Navigate to Leave Dashboard
-        await Navigator.pushNamed(
-          context,
-          '/leave_dashboard',
-          arguments: {'employeeId': _displayEmployeeId},
-        );
-        resetBottomNavToHome();
-        break;
-      case 2:
-      // Navigate to Attendance History
-        await Navigator.pushNamed(
-          context,
-          '/attendance_history',
-          arguments: {'employeeId': _displayEmployeeId},
-        );
-        resetBottomNavToHome();
-        break;
-      case 3:
-      // Navigate to Profile
-        if (_accessToken == null || _instanceUrl == null) {
-          _showAuthErrorSnackbar(context);
-          await _loadAuthData();
-          return;
-        }
-        await Navigator.pushNamed(context, '/profile');
-        resetBottomNavToHome();
-        break;
+    const routes = ['', '/leave_dashboard', '/attendance_history', '/profile'];
+
+    if (index == 0) return;
+
+    if (index == 3 && (_accessToken == null || _instanceUrl == null)) {
+      _showAuthErrorSnackbar(context);
+      await _loadAuthData();
+      return;
     }
+
+    final args = (index == 1 || index == 2) ? {'employeeId': _displayEmployeeId} : null;
+    await Navigator.pushNamed(context, routes[index], arguments: args);
+    resetBottomNavToHome();
   }
 
-  /// Show authentication error snackbar
+  /// Snackbar methods
   void _showAuthErrorSnackbar(BuildContext context) {
-    _showSnackbar(
-      context,
-      message: 'Authentication data not available. Please try again.',
-      backgroundColor: Colors.red,
-      textColor: Colors.white,
-    );
+    _showSnackbar(context, 'Authentication data not available. Please try again.', Colors.red);
   }
 
-  /// Show location status snackbar
   void showLocationSnackbar(BuildContext context) {
     if (_isLocationChecking) {
-      // Show updating location snackbar
       showUpdatingLocationSnackbar(context);
       return;
     }
 
     if (_isWithinRadius) {
-      // Show success snackbar
-      _showSnackbar(
-        context,
-        message: 'You are in the office radius',
-        backgroundColor: Colors.green,
-        textColor: Colors.white,
-      );
+      _showSnackbar(context, 'You are in the office radius', Colors.green);
     } else {
-      // Show error snackbar with distance
       final extraDistance = _distance - _locationLogic.radiusInMeters;
-      _showSnackbar(
-        context,
-        message: 'You are ${extraDistance.toStringAsFixed(0)}m away from office radius',
-        backgroundColor: Colors.red,
-        textColor: Colors.white,
-      );
+      _showSnackbar(context, 'You are ${extraDistance.toStringAsFixed(0)}m away from office radius', Colors.red);
     }
   }
 
-  /// Show updating location snackbar
   void showUpdatingLocationSnackbar(BuildContext context) {
-    _showSnackbar(
-      context,
-      message: 'Updating location',
-      backgroundColor: Colors.blueAccent,
-      textColor: Colors.white,
-    );
+    _showSnackbar(context, 'Updating location', Colors.blueAccent);
   }
 
-  /// Handle location icon tap
   void onLocationIconTap(BuildContext context) {
     if (_isLocationChecking) {
       showLocationSnackbar(context);
     } else {
       showUpdatingLocationSnackbar(context);
-
       checkLocationRadius().then((_) {
         Future.delayed(const Duration(milliseconds: 100), () {
           showLocationSnackbar(context);
@@ -517,33 +378,18 @@ class DashboardLogic extends ChangeNotifier {
     }
   }
 
-  /// Private method to show snackbar
-  void _showSnackbar(
-      BuildContext context, {
-        required String message,
-        required Color backgroundColor,
-        required Color textColor,
-      }) {
-    // Remove any existing snackbar
+  void _showSnackbar(BuildContext context, String message, Color backgroundColor) {
     ScaffoldMessenger.of(context).removeCurrentSnackBar();
-
-    // Show new snackbar
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           message,
-          style: TextStyle(
-            color: textColor,
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
+          style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
         ),
         backgroundColor: backgroundColor,
         duration: const Duration(milliseconds: 1500),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         margin: const EdgeInsets.all(16),
       ),
     );
@@ -555,7 +401,6 @@ class DashboardLogic extends ChangeNotifier {
     await checkLocationRadius();
   }
 
-  /// Dispose method to clean up resources
   @override
   void dispose() {
     _clockInOutController.removeListener(_onClockStatusChanged);
