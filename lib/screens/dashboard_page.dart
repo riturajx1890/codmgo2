@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:codmgo2/screens/attendence_history.dart';
 import 'package:codmgo2/utils/dashboard_logic.dart';
-import 'package:codmgo2/screens/profile_screen.dart';
 import 'package:intl/intl.dart';
-import 'leave_dashboard.dart';
 import 'package:codmgo2/utils/recent_activity.dart';
 import 'package:codmgo2/utils/clock_in_out_logic.dart';
 
@@ -77,37 +74,7 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
     await dashboardLogic.onRefresh(context);
   }
 
-  void _onBottomNavTap(int index) {
-    dashboardLogic.onBottomNavTap(index);
 
-    Widget? targetScreen;
-    switch (index) {
-      case 0:
-        return;
-      case 1:
-        targetScreen = LeaveDashboardPage(employeeId: dashboardLogic.displayEmployeeId);
-        break;
-      case 2:
-        targetScreen = AttendanceHistoryPage(employeeId: dashboardLogic.displayEmployeeId);
-        break;
-      case 3:
-        if (dashboardLogic.accessToken == null || dashboardLogic.instanceUrl == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Authentication data not available. Please try again.')),
-          );
-          return;
-        }
-        targetScreen = ProfilePage();
-        break;
-    }
-
-    if (targetScreen != null) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => targetScreen!),
-      ).then((_) => dashboardLogic.resetBottomNavToHome());
-    }
-  }
 
   Future<void> _onClockInTap() async {
     HapticFeedback.mediumImpact();
@@ -337,8 +304,6 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
           ),
         ),
       ),
-      extendBody: true,
-      bottomNavigationBar: _buildBottomNavigationBar(cardColor, isDarkMode),
     );
   }
 
@@ -575,23 +540,6 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
     );
   }
 
-  Widget _buildBottomNavigationBar(Color cardColor, bool isDarkMode) {
-    return BottomNavigationBar(
-      type: BottomNavigationBarType.fixed,
-      backgroundColor: cardColor,
-      selectedItemColor: const Color(0xFF667EEA),
-      unselectedItemColor: isDarkMode ? Colors.grey[500] : Colors.grey[400],
-      currentIndex: dashboardLogic.currentIndex,
-      elevation: 10,
-      onTap: _onBottomNavTap,
-      items: const [
-        BottomNavigationBarItem(icon: Icon(Icons.home), activeIcon: Icon(Icons.home), label: 'Home'),
-        BottomNavigationBarItem(icon: Icon(Icons.event_available_outlined), activeIcon: Icon(Icons.event_available), label: 'Leave'),
-        BottomNavigationBarItem(icon: Icon(Icons.calendar_month), activeIcon: Icon(Icons.calendar_month), label: 'Attendance'),
-        BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Profile'),
-      ],
-    );
-  }
 
   Widget _buildClockStatCard(String title, String time, IconData icon) {
     return Expanded(

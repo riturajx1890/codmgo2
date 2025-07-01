@@ -469,7 +469,6 @@ class _ProfilePageState extends State<ProfilePage> {
               : profileLogic.profileData == null
               ? _buildNoDataState(textColor, subtitleColor)
               : _buildProfileContent(profileLogic.profileData!, cardColor, isDarkMode, textColor, subtitleColor),
-          bottomNavigationBar: _buildBottomNavigationBar(cardColor, isDarkMode),
         );
       },
     );
@@ -575,21 +574,5 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildBottomNavigationBar(Color cardColor, bool isDarkMode) {
-    return BottomNavigationBar(
-      type: BottomNavigationBarType.fixed,
-      backgroundColor: cardColor,
-      selectedItemColor: const Color(0xFF667EEA),
-      unselectedItemColor: isDarkMode ? Colors.grey[500] : Colors.grey[400],
-      currentIndex: 3,
-      elevation: 10,
-      onTap: (index) => _onBottomNavTap(context, index),
-      items: const [
-        BottomNavigationBarItem(icon: Icon(Icons.home), activeIcon: Icon(Icons.home_filled), label: 'Home'),
-        BottomNavigationBarItem(icon: Icon(Icons.event_available_outlined), activeIcon: Icon(Icons.event_available), label: 'Leave'),
-        BottomNavigationBarItem(icon: Icon(Icons.calendar_month), label: 'Attendance'),
-        BottomNavigationBarItem(icon: Icon(Icons.person_outline), activeIcon: Icon(Icons.person), label: 'Profile'),
-      ],
-    );
-  }
+
 }

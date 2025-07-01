@@ -1,7 +1,6 @@
 import 'package:codmgo2/screens/profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 import 'package:codmgo2/screens/apply_leave.dart';
 import 'package:codmgo2/screens/leave_history.dart';
 import 'package:codmgo2/screens/dashboard_page.dart';
@@ -188,47 +187,7 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> with TickerProv
     return 0;
   }
 
-  void _onBottomNavTap(BuildContext context, int index) {
-    if (index == 1) return; // Already on Leave page
 
-    switch (index) {
-      case 0:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => DashboardPage(
-              employeeId: employeeId ?? widget.employeeId,
-              firstName: firstName ?? '',
-              lastName: lastName ?? '',
-            ),
-          ),
-        );
-        break;
-      case 2:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => AttendanceHistoryPage(employeeId: employeeId ?? widget.employeeId),
-          ),
-        );
-        break;
-      case 3:
-        if (accessToken == null || instanceUrl == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Authentication data not available. Please try again.')),
-          );
-          _loadUserDataAndAuth(); // Retry loading auth data
-          return;
-        }
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProfilePage(),
-          ),
-        );
-        break;
-    }
-  }
 
   Future<void> _handleRefresh() async {
     await _loadUserDataAndAuth();
@@ -546,37 +505,7 @@ class _LeaveDashboardPageState extends State<LeaveDashboardPage> with TickerProv
           ),
         ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: cardColor,
-        selectedItemColor: const Color(0xFF667EEA),
-        unselectedItemColor: isDarkMode ? Colors.grey[500] : Colors.grey[400],
-        currentIndex: 1, // Leave tab selected
-        elevation: 10,
-        onTap: (index) => _onBottomNavTap(context, index),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            activeIcon: Icon(Icons.home_filled),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.event_available_outlined),
-            activeIcon: Icon(Icons.event_available),
-            label: 'Leave',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_month),
-            activeIcon: Icon(Icons.calendar_month),
-            label: 'Attendance',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-        ],
-      ),
+
     );
   }
 

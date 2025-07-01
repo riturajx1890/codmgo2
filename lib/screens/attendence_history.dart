@@ -114,47 +114,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
     }
   }
 
-  void _onBottomNavTap(BuildContext context, int index) {
-    if (index == 2) return; // Already on Attendance page
 
-    switch (index) {
-      case 0:
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => DashboardPage(
-              employeeId: widget.employeeId,
-              firstName: '',
-              lastName: '',
-            ),
-          ),
-        );
-        break;
-      case 1:
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => LeaveDashboardPage(employeeId: widget.employeeId),
-          ),
-        );
-        break;
-      case 3:
-        if (accessToken == null || instanceUrl == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Authentication data not available. Please try again.')),
-          );
-          _loadAuthData();
-          return;
-        }
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProfilePage(),
-          ),
-        );
-        break;
-    }
-  }
 
   String _getStatusText() {
     switch (clockInOutController.status) {
@@ -397,37 +357,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
           ],
         ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        backgroundColor: cardColor,
-        selectedItemColor: const Color(0xFF667EEA),
-        unselectedItemColor: isDarkMode ? Colors.grey[500] : Colors.grey[400],
-        currentIndex: 2, // Attendance tab selected
-        elevation: 10,
-        onTap: (index) => _onBottomNavTap(context, index),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            activeIcon: Icon(Icons.home_filled),
-            label: 'Home',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.event_available_outlined),
-            activeIcon: Icon(Icons.event_available),
-            label: 'Leave',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_month),
-            activeIcon: Icon(Icons.calendar_month),
-            label: 'Attendance',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-        ],
-      ),
+
     );
   }
 

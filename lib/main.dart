@@ -5,14 +5,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_displaymode/flutter_displaymode.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:logger/logger.dart'; // For logging
-import 'package:provider/provider.dart'; // Add provider import
-import 'package:codmgo2/utils/location_logic.dart'; // Import LocationLogic
-import 'package:codmgo2/utils/profile_logic.dart'; // Import ProfileLogic
-import 'package:codmgo2/screens/profile_screen.dart'; // Import ProfilePage
+import 'package:logger/logger.dart';
+import 'package:provider/provider.dart';
+import 'package:codmgo2/utils/location_logic.dart';
+import 'package:codmgo2/utils/profile_logic.dart';
+import 'package:codmgo2/screens/profile_screen.dart';
+import 'package:codmgo2/utils/bottom_nav_bar.dart';
 import 'theme/themes.dart';
 import 'screens/login_page.dart';
-import 'screens/dashboard_page.dart';
 
 void main() async {
   // Preserve splash screen until initialization is complete
@@ -43,9 +43,9 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
-  final LocationLogic _locationLogic = LocationLogic(); // Instantiate LocationLogic
-  final Logger _logger = Logger(); // Logger instance
-  StreamSubscription<Position>? _positionStreamSubscription; // To manage location stream
+  final LocationLogic _locationLogic = LocationLogic();
+  final Logger _logger = Logger();
+  StreamSubscription<Position>? _positionStreamSubscription;
 
   @override
   void initState() {
@@ -56,7 +56,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   Future<void> _initializeApp() async {
     // Simulate app initialization
-    await Future.delayed(const Duration(milliseconds: 1500)); // 1.5 seconds
+    await Future.delayed(const Duration(milliseconds: 1500));
 
     // Perform initial location check
     await _checkLocation();
@@ -100,7 +100,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       case AppLifecycleState.resumed:
         _logger.i('App resumed');
         _setDisplayMode();
-        _checkLocation(); // Perform location check when app resumes
+        _checkLocation();
         break;
       case AppLifecycleState.inactive:
         _logger.i('App inactive');
@@ -145,7 +145,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         initialRoute: '/login',
         routes: {
           '/login': (context) => const LoginPage(),
-          '/dashboard': (context) => const DashboardPage(firstName: '', lastName: '', employeeId: ''),
+          '/main': (context) => const MainApp(),
           '/profile': (context) => const ProfilePage(),
         },
         navigatorObservers: [RouteObserver<PageRoute>()],
@@ -162,33 +162,201 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 }
 
-// Navigation Helper class for ProfilePage navigation
+// Main app wrapper that contains the bottom navigation
+class MainApp extends StatefulWidget {
+  final String? firstName;
+  final String? lastName;
+  final String? employeeId;
+  final int initialIndex;
+
+  const MainApp({
+    super.key,
+    this.firstName,
+    this.lastName,
+    this.employeeId,
+    this.initialIndex = 0,
+  });
+
+  @override
+  State<MainApp> createState() => _MainAppState();
+}
+
+class _MainAppState extends State<MainApp> {
+  late String firstName;
+  late String lastName;
+  late String employeeId;
+  late int initialIndex;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    // Get the arguments passed from login or other screens
+    final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
+
+    firstName = widget.firstName ?? args?['firstName'] ?? '';
+    lastName = widget.lastName ?? args?['lastName'] ?? '';
+    employeeId = widget.employeeId ?? args?['employeeId'] ?? '';
+    initialIndex = args?['initialIndex'] ?? widget.initialIndex;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return WillPopScope(
+      onWillPop: () async {
+        // Prevent back button from going to login
+        return false;
+      },
+      child: CustomBottomNavBar(
+        firstName: firstName,
+        lastName: lastName,
+        employeeId: employeeId,
+        initialIndex: initialIndex,
+      ),
+    );
+  }
+}
+
+// Enhanced Navigation Helper class for smooth app navigation
 class NavigationHelper {
-  static void navigateToProfile(BuildContext context, {String? employeeId}) {
-    Navigator.push(
+  // Navigate to main app with bottom navigation
+  static Future<void> navigateToMainApp(
+      BuildContext context, {
+        required String firstName,
+        required String lastName,
+        required String employeeId,
+        int initialIndex = 0,
+        bool clearStack = true,
+      }) async {
+    if (clearStack) {
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/main',
+            (route) => false,
+        arguments: {
+          'firstName': firstName,
+          'lastName': lastName,
+          'employeeId': employeeId,
+          'initialIndex': initialIndex,
+        },
+      );
+    } else {
+      Navigator.pushNamed(
+        context,
+        '/main',
+        arguments: {
+          'firstName': firstName,
+          'lastName': lastName,
+          'employeeId': employeeId,
+          'initialIndex': initialIndex,
+        },
+      );
+    }
+  }
+
+  // Navigate to specific tab in main app
+  static Future<void> navigateToMainAppWithTab(
+      BuildContext context, {
+        required String firstName,
+        required String lastName,
+        required String employeeId,
+        required int tabIndex,
+        bool clearStack = true,
+      }) async {
+    if (clearStack) {
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/main',
+            (route) => false,
+        arguments: {
+          'firstName': firstName,
+          'lastName': lastName,
+          'employeeId': employeeId,
+          'initialIndex': tabIndex,
+        },
+      );
+    } else {
+      Navigator.pushReplacementNamed(
+        context,
+        '/main',
+        arguments: {
+          'firstName': firstName,
+          'lastName': lastName,
+          'employeeId': employeeId,
+          'initialIndex': tabIndex,
+        },
+      );
+    }
+  }
+
+  // Navigate to profile with smooth transition
+  static Future<void> navigateToProfile(BuildContext context, {String? employeeId}) async {
+    await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => ProfilePage(employeeId: employeeId),
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            ProfilePage(employeeId: employeeId),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(1.0, 0.0);
+          const end = Offset.zero;
+          const curve = Curves.easeInOutCubic;
+
+          var tween = Tween(begin: begin, end: end).chain(
+            CurveTween(curve: curve),
+          );
+
+          return SlideTransition(
+            position: animation.drive(tween),
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
       ),
     );
   }
 
-  static void navigateToProfileWithUserEmail(BuildContext context, String userEmail) async {
-    // Initialize employee data using email
+  static Future<void> navigateToProfileWithUserEmail(
+      BuildContext context, String userEmail) async {
     final profileLogic = context.read<ProfileLogic>();
     await profileLogic.initializeEmployeeData(userEmail);
 
-    Navigator.push(
+    await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => const ProfilePage(),
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+        const ProfilePage(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: child,
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 250),
       ),
     );
   }
 
-  // Additional helper method to navigate to profile using named route
-  static void navigateToProfileNamed(BuildContext context) {
-    Navigator.pushNamed(context, '/profile');
+  static Future<void> navigateToProfileNamed(BuildContext context) async {
+    await Navigator.pushNamed(context, '/profile');
+  }
+
+  // Navigate back to login with smooth transition
+  static Future<void> navigateToLogin(BuildContext context) async {
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      '/login',
+          (route) => false,
+    );
+  }
+
+  // Method to update tab index without rebuilding the entire widget
+  static void updateTabIndex(BuildContext context, int newIndex) {
+    final mainAppState = context.findAncestorStateOfType<_MainAppState>();
+    if (mainAppState != null) {
+      mainAppState.setState(() {
+        mainAppState.initialIndex = newIndex;
+      });
+    }
   }
 }
 
@@ -199,8 +367,30 @@ class PlaceholderWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(child: Text(title, style: Theme.of(context).textTheme.headlineSmall)),
+      appBar: AppBar(
+        title: Text(title),
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.construction,
+              size: 64,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                color: Colors.grey[600],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
