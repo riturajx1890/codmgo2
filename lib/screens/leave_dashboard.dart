@@ -1,11 +1,7 @@
-import 'package:codmgo2/screens/profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:codmgo2/screens/apply_leave.dart';
 import 'package:codmgo2/screens/leave_history.dart';
-import 'package:codmgo2/screens/dashboard_page.dart';
-import 'package:codmgo2/screens/attendence_history.dart';
-import 'package:codmgo2/services/profile_service.dart';
 import 'package:codmgo2/services/leave_api_service.dart';
 import 'package:codmgo2/utils/upcoming_leaves.dart';
 import 'package:codmgo2/utils/shared_prefs_utils.dart';

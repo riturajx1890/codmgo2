@@ -66,10 +66,8 @@ class _CustomBottomNavBarState extends State<CustomBottomNavBar> {
       case 2:
         return _buildSearchPlaceholder();
       case 3:
-        return AttendanceHistoryPage(employeeId: widget.employeeId);
-      case 4:
         return LeaveHistoryPage(employeeId: widget.employeeId);
-      case 5:
+      case 4:
         return const ProfilePage();
       default:
         return DashboardPage(

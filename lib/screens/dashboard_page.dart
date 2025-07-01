@@ -1,3 +1,4 @@
+import 'package:codmgo2/screens/slide_bar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:codmgo2/utils/dashboard_logic.dart';
@@ -21,18 +22,25 @@ class DashboardPage extends StatefulWidget {
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
-class _DashboardPageState extends State<DashboardPage> with SingleTickerProviderStateMixin {
+class _DashboardPageState extends State<DashboardPage> with TickerProviderStateMixin {
   late final DashboardLogic dashboardLogic;
   late final ClockInOutLogic clockInOutLogic;
   late AnimationController scaleAnimationController;
   late Animation<double> scaleAnimation;
   final ScrollController _scrollController = ScrollController();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  // Drawer functionality variables
+  late AnimationController _drawerAnimationController;
+  late Animation<Offset> _drawerSlideAnimation;
+  bool _isDrawerOpen = false;
 
   @override
   void initState() {
     super.initState();
     _initializeControllers();
     _initializeDashboard();
+    _initializeDrawer();
   }
 
   void _initializeControllers() {
@@ -51,6 +59,21 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
       curve: Curves.easeInOut,
     );
     scaleAnimationController.forward();
+  }
+
+  void _initializeDrawer() {
+    _drawerAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+
+    _drawerSlideAnimation = Tween<Offset>(
+      begin: const Offset(-1.0, 0.0),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _drawerAnimationController,
+      curve: Curves.easeInOut,
+    ));
   }
 
   Future<void> _initializeDashboard() async {
@@ -74,7 +97,33 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
     await dashboardLogic.onRefresh(context);
   }
 
+  void _onProfileIconTap() {
+    HapticFeedback.lightImpact();
+    setState(() {
+      _isDrawerOpen = !_isDrawerOpen;
+    });
 
+    if (_isDrawerOpen) {
+      _drawerAnimationController.forward();
+    } else {
+      _drawerAnimationController.reverse();
+    }
+  }
+
+  void _closeDrawer() {
+    if (_isDrawerOpen) {
+      setState(() {
+        _isDrawerOpen = false;
+      });
+      _drawerAnimationController.reverse();
+    }
+  }
+
+  void _toggleTheme() {
+    // Implement your theme toggle logic here
+    print('Toggle theme');
+    // You can add your theme provider logic here
+  }
 
   Future<void> _onClockInTap() async {
     HapticFeedback.mediumImpact();
@@ -177,7 +226,7 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
           backgroundColor: cardColor,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           content: SizedBox(
-            width: 200, // Fixed width for consistent size
+            width: 200,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -259,10 +308,12 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
     clockInOutLogic.removeListener(_onClockInOutStateChanged);
     clockInOutLogic.dispose();
     scaleAnimationController.dispose();
+    _drawerAnimationController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
+  @override
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -278,32 +329,71 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
     final formattedDate = dateFormat.format(now);
     final formattedTime = timeFormat.format(now);
 
-    return Scaffold(
-      backgroundColor: backgroundColor,
-      appBar: _buildAppBar(cardColor, subtitleColor, textColor, isDarkMode),
-      body: RefreshIndicator(
-        onRefresh: _onRefresh,
-        child: ScrollConfiguration(
-          behavior: const ScrollBehavior().copyWith(scrollbars: false),
-          child: SingleChildScrollView(
-            controller: _scrollController,
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildTodaysAttendanceCard(formattedTime, formattedDate, isDarkMode),
-                const SizedBox(height: 20),
-                _buildUpcomingLeaveSection(textColor, cardColor, isDarkMode, subtitleColor),
-                const SizedBox(height: 20),
-                _buildQuickActionsSection(textColor, isDarkMode),
-                const SizedBox(height: 20),
-                _buildRecentActivitySection(textColor, cardColor, isDarkMode),
-                const SizedBox(height: 80),
-              ],
-            ),
+    return Stack(
+      children: [
+        Scaffold(
+          key: _scaffoldKey,
+          backgroundColor: backgroundColor,
+          appBar: _buildAppBar(cardColor, subtitleColor, textColor, isDarkMode),
+          body: Stack(
+            children: [
+              // Main content with gesture detector to close drawer
+              GestureDetector(
+                onTap: _isDrawerOpen ? _closeDrawer : null,
+                child: AbsorbPointer(
+                  absorbing: _isDrawerOpen,
+                  child: RefreshIndicator(
+                    onRefresh: _onRefresh,
+                    child: ScrollConfiguration(
+                      behavior: const ScrollBehavior().copyWith(scrollbars: false),
+                      child: SingleChildScrollView(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildTodaysAttendanceCard(formattedTime, formattedDate, isDarkMode),
+                            const SizedBox(height: 20),
+                            _buildUpcomingLeaveSection(textColor, cardColor, isDarkMode, subtitleColor),
+                            const SizedBox(height: 20),
+                            _buildQuickActionsSection(textColor, isDarkMode),
+                            const SizedBox(height: 20),
+                            _buildRecentActivitySection(textColor, cardColor, isDarkMode),
+                            const SizedBox(height: 80),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // Overlay when drawer is open
+              if (_isDrawerOpen)
+                GestureDetector(
+                  onTap: _closeDrawer,
+                  child: Container(
+                    color: Colors.black.withOpacity(0.5),
+                    width: double.infinity,
+                    height: double.infinity,
+                  ),
+                ),
+            ],
           ),
         ),
-      ),
+
+        // Slide-out drawer - moved outside Scaffold to appear above app bar
+        SlideTransition(
+          position: _drawerSlideAnimation,
+          child: SlideBar(
+            firstName: widget.firstName,
+            lastName: widget.lastName,
+            phoneNumber: '+91 1234567890',
+            isDarkMode: isDarkMode,
+            onThemeToggle: _toggleTheme,
+          ),
+        ),
+      ],
     );
   }
 
@@ -315,14 +405,17 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
       toolbarHeight: 63,
       title: Row(
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: const Color(0xFF667EEA).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(10),
+          GestureDetector(
+            onTap: _onProfileIconTap,
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: const Color(0xFF667EEA).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.person, color: Color(0xFF667EEA), size: 24),
             ),
-            child: const Icon(Icons.person, color: Color(0xFF667EEA), size: 24),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -539,7 +632,6 @@ class _DashboardPageState extends State<DashboardPage> with SingleTickerProvider
       employeeId: widget.employeeId,
     );
   }
-
 
   Widget _buildClockStatCard(String title, String time, IconData icon) {
     return Expanded(
