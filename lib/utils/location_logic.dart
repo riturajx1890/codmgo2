@@ -6,7 +6,7 @@ class LocationLogic {
 
   double officeLat = 28.55122201233124;
   double officeLng = 77.32420167559967;
-  double radiusInMeters = 250;
+  double radiusInMeters = 50;
 
   Future<Map<String, dynamic>> isWithinRadius() async {
     _logger.i('Checking if user is within office radius');
@@ -15,7 +15,7 @@ class LocationLogic {
       _logger.i('Getting current position...');
       Position position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
+          accuracy: LocationAccuracy.medium,
           distanceFilter: 0,
           timeLimit: Duration(seconds: 30),
         ),

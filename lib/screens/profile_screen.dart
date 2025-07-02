@@ -88,8 +88,8 @@ class _ProfilePageState extends State<ProfilePage> {
     if (flag?.isEmpty != false) return Colors.grey;
     switch (flag!.toLowerCase()) {
       case 'green': return Colors.green;
-      case 'yellow': return Colors.yellow;
-      case 'orange': return Colors.orange;
+      case 'yellow': return Color(0xFFFBC02D);
+      case 'orange': return Color(0xFFF57F17);
       case 'red': return Colors.red;
       default: return Colors.grey;
     }
@@ -275,7 +275,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 Container(
                   padding: const EdgeInsets.all(4),
                   decoration: const BoxDecoration(
-                    color: Colors.green,
+                    color: const Color(0xFF1A73E8),
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(Icons.edit, color: Colors.white, size: 16),
@@ -316,9 +316,9 @@ class _ProfilePageState extends State<ProfilePage> {
       padding: const EdgeInsets.all(16),
       margin: const EdgeInsets.only(bottom: 18),
       decoration: BoxDecoration(
-        color: cardColor,
+        color: flagColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: flagColor, width: 2),
+        border: Border.all(color: Colors.transparent, width: 2),
         boxShadow: [
           BoxShadow(
             color: isDarkMode ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.08),
@@ -330,12 +330,12 @@ class _ProfilePageState extends State<ProfilePage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.flag, color: flagColor, size: 24),
+          Icon(Icons.flag, color: Colors.white, size: 24),
           const SizedBox(width: 8),
           Text(
             'Performance Flag: $flag',
             style: TextStyle(
-              color: flagColor,
+              color: Colors.white,
               fontSize: 16,
               fontWeight: FontWeight.w600,
             ),

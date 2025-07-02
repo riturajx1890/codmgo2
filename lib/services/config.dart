@@ -6,9 +6,7 @@ class Config {
   static const String salesforcePasswordWithToken = 'RituRaj@20258onQrKhcHZwQHO0USxeyjABlU';
   static const String salesforceLoginUrl = 'https://test.salesforce.com/services/oauth2/token';
 
-  // Email Configuration
-  static const String hrEmail = 'riturajrudra52@gmail.com';
-  static const String managerEmail = 'riturajrudra18@gmail.com';
+
 
   // Other Configuration
   static const int requestTimeoutSeconds = 30;
