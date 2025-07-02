@@ -13,13 +13,14 @@ enum ClockStatus { unmarked, clockedIn, clockedOut }
 class ClockInOutLogic with ChangeNotifier {
   static final Logger _logger = Logger();
 
+  // Core state
   ClockStatus _status = ClockStatus.unmarked;
   DateTime? inTime;
   DateTime? outTime;
-
   bool _canClockIn = true;
   bool _canClockOut = false;
 
+  // Credentials
   String? accessToken;
   String? instanceUrl;
   String? employeeId;
@@ -38,20 +39,20 @@ class ClockInOutLogic with ChangeNotifier {
 
   String get statusText {
     switch (_status) {
-      case ClockStatus.clockedIn:
-        return "Clocked In";
-      case ClockStatus.clockedOut:
-        return "Clocked Out";
-      default:
-        return "Unmarked";
+      case ClockStatus.clockedIn: return "Clocked In";
+      case ClockStatus.clockedOut: return "Clocked Out";
+      default: return "Unmarked";
     }
   }
 
+  // Timer helper getters
+  bool get hasActiveTimers => _timerLogic.hasActiveTimers;
+  bool get isTimerClockIn => _timerLogic.isClockIn;
+  DateTime? get timerClockInTime => _timerLogic.clockInTime;
+  int get notificationCount => _timerLogic.notificationCount;
+
   ClockInOutLogic() {
-    // Initialize timer logic with callback
-    _timerLogic = TimerNotificationLogic(
-      onStatusUpdate: updateClockStatus,
-    );
+    _timerLogic = TimerNotificationLogic(onStatusUpdate: updateClockStatus);
     _loadTodayStatus();
   }
 
@@ -73,19 +74,18 @@ class ClockInOutLogic with ChangeNotifier {
     try {
       final endDate = DateTime.now();
       final startDate = endDate.subtract(const Duration(days: 30));
-
       final startDateStr = DateFormat('yyyy-MM-dd').format(startDate);
       final endDateStr = DateFormat('yyyy-MM-dd').format(endDate);
 
       final query = """
-      SELECT Id, In_Time__c, Out_Time__c, Date__c 
-      FROM Attendance__c 
-      WHERE Employee__c = '$employeeId' 
-      AND Date__c >= $startDateStr 
-      AND Date__c <= $endDateStr 
-      ORDER BY Date__c DESC, In_Time__c DESC 
-      LIMIT $limit
-    """;
+        SELECT Id, In_Time__c, Out_Time__c, Date__c 
+        FROM Attendance__c 
+        WHERE Employee__c = '$employeeId' 
+        AND Date__c >= $startDateStr 
+        AND Date__c <= $endDateStr 
+        ORDER BY Date__c DESC, In_Time__c DESC 
+        LIMIT $limit
+      """;
 
       final uri = Uri.parse('$instanceUrl/services/data/v57.0/query/')
           .replace(queryParameters: {'q': query});
@@ -100,14 +100,10 @@ class ClockInOutLogic with ChangeNotifier {
         },
       );
 
-      logger.i('Attendance history response status: ${response.statusCode}');
-
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final records = data['records'] as List<dynamic>;
-
         logger.i('Found ${records.length} attendance records');
-
         return records.map((record) => record as Map<String, dynamic>).toList();
       } else {
         logger.e('Failed to fetch attendance history: ${response.statusCode} - ${response.body}');
@@ -119,93 +115,28 @@ class ClockInOutLogic with ChangeNotifier {
     }
   }
 
-  Future<void> _loadTodayStatus() async {
-    _logger.i('Loading today\'s status on controller initialization');
-
-    await _loadCredentials();
-
-    if (employeeId != null && accessToken != null && instanceUrl != null) {
-      try {
-        final todayAttendance = await ClockInOutService.getTodayAttendance(
-          accessToken!,
-          instanceUrl!,
-          employeeId!,
-        );
-
-        if (todayAttendance != null) {
-          if (todayAttendance['Out_Time__c'] != null) {
-            // Already clocked out today
-            _status = ClockStatus.clockedOut;
-            inTime = DateTime.parse(todayAttendance['In_Time__c']).toLocal();
-            outTime = DateTime.parse(todayAttendance['Out_Time__c']).toLocal();
-            _canClockIn = false;
-            _canClockOut = false;
-            _logger.i('Found completed attendance for today');
-
-            // Stop any running timers since user is already clocked out
-            _timerLogic.stopTimers();
-          } else {
-            // Already clocked in today
-            _status = ClockStatus.clockedIn;
-            inTime = DateTime.parse(todayAttendance['In_Time__c']).toLocal();
-            _canClockIn = false;
-            _canClockOut = true;
-            _logger.i('Found active clock-in for today');
-
-            // Resume timers with existing clock in time
-            _timerLogic.resumeTimers(inTime!);
-          }
-          notifyListeners();
-        } else {
-          // No attendance today
-          _canClockIn = true;
-          _canClockOut = false;
-          _logger.i('No attendance found for today');
-
-          // Ensure timers are stopped
-          _timerLogic.stopTimers();
-        }
-      } catch (e, stackTrace) {
-        _logger.e('Error loading today\'s status: $e', error: e, stackTrace: stackTrace);
-      }
-    }
-  }
-
+  // Private helper methods
   Future<void> _loadCredentials() async {
     _logger.i('Loading credentials from SharedPrefsUtils');
 
     try {
-      // Get valid credentials with employee ID using SharedPrefsUtils
+      // Try to get complete credentials with employee ID first
       final credentialsWithId = await SharedPrefsUtils.getValidCredentialsWithEmployeeId();
 
       if (credentialsWithId != null) {
         accessToken = credentialsWithId['access_token'];
         instanceUrl = credentialsWithId['instance_url'];
         employeeId = credentialsWithId['employee_id'];
-
-        _logger.i('Credentials loaded successfully - employeeId: $employeeId');
-
-        // Load additional user data from remember me or stored preferences
-        final rememberMeData = await SharedPrefsUtils.checkRememberMeStatus();
-        if (rememberMeData != null) {
-          firstName = rememberMeData['first_name'];
-          lastName = rememberMeData['last_name'];
-          userEmail = rememberMeData['email'];
-          _logger.i('User data loaded from remember me');
+        _logger.i('Complete credentials loaded - employeeId: $employeeId');
+      } else {
+        // Fallback: load credentials and employee data separately
+        final salesforceCredentials = await SharedPrefsUtils.getSalesforceCredentials();
+        if (salesforceCredentials != null) {
+          accessToken = salesforceCredentials['access_token'];
+          instanceUrl = salesforceCredentials['instance_url'];
         }
-
-        return;
+        employeeId = await SharedPrefsUtils.getCurrentEmployeeId();
       }
-
-      // Fallback: try to get credentials separately
-      final salesforceCredentials = await SharedPrefsUtils.getSalesforceCredentials();
-      if (salesforceCredentials != null) {
-        accessToken = salesforceCredentials['access_token'];
-        instanceUrl = salesforceCredentials['instance_url'];
-      }
-
-      // Try to get employee ID
-      employeeId = await SharedPrefsUtils.getCurrentEmployeeId();
 
       // Load user data from remember me
       final rememberMeData = await SharedPrefsUtils.checkRememberMeStatus();
@@ -213,10 +144,9 @@ class ClockInOutLogic with ChangeNotifier {
         firstName = rememberMeData['first_name'];
         lastName = rememberMeData['last_name'];
         userEmail = rememberMeData['email'];
-        // If employee ID is missing but available in remember me, use it
-        if (employeeId == null) {
-          employeeId = rememberMeData['employee_id'];
-        }
+        // Use employee ID from remember me if not already set
+        employeeId ??= rememberMeData['employee_id'];
+        _logger.i('User data loaded from remember me');
       }
 
       _logger.i('Credentials loaded - accessToken: ${accessToken != null ? "present" : "null"}, instanceUrl: ${instanceUrl != null ? "present" : "null"}, employeeId: $employeeId');
@@ -225,12 +155,11 @@ class ClockInOutLogic with ChangeNotifier {
     }
   }
 
-  Future<bool> checkIfAlreadyClockedInToday() async {
+  Future<void> _loadTodayStatus() async {
+    _logger.i('Loading today\'s status on controller initialization');
     await _loadCredentials();
 
-    if (employeeId == null || accessToken == null || instanceUrl == null) {
-      return false;
-    }
+    if (!_hasValidCredentials()) return;
 
     try {
       final todayAttendance = await ClockInOutService.getTodayAttendance(
@@ -239,6 +168,163 @@ class ClockInOutLogic with ChangeNotifier {
         employeeId!,
       );
 
+      if (todayAttendance != null) {
+        _processExistingAttendance(todayAttendance);
+      } else {
+        _resetToUnmarked();
+      }
+      notifyListeners();
+    } catch (e, stackTrace) {
+      _logger.e('Error loading today\'s status: $e', error: e, stackTrace: stackTrace);
+    }
+  }
+
+  void _processExistingAttendance(Map<String, dynamic> attendance) {
+    if (attendance['Out_Time__c'] != null) {
+      // Already clocked out today
+      _status = ClockStatus.clockedOut;
+      inTime = DateTime.parse(attendance['In_Time__c']).toLocal();
+      outTime = DateTime.parse(attendance['Out_Time__c']).toLocal();
+      _canClockIn = false;
+      _canClockOut = false;
+      _timerLogic.stopTimers();
+      _logger.i('Found completed attendance for today');
+    } else {
+      // Already clocked in today
+      _status = ClockStatus.clockedIn;
+      inTime = DateTime.parse(attendance['In_Time__c']).toLocal();
+      _canClockIn = false;
+      _canClockOut = true;
+      _timerLogic.resumeTimers(inTime!);
+      _logger.i('Found active clock-in for today');
+    }
+  }
+
+  void _resetToUnmarked() {
+    _canClockIn = true;
+    _canClockOut = false;
+    _timerLogic.stopTimers();
+    _logger.i('No attendance found for today');
+  }
+
+  bool _hasValidCredentials() {
+    return employeeId != null && accessToken != null && instanceUrl != null;
+  }
+
+  Future<void> _saveRememberMeIfNeeded() async {
+    if (_hasCompleteUserData()) {
+      await SharedPrefsUtils.saveRememberMeStatus(
+        employeeId!,
+        firstName!,
+        lastName!,
+        email: userEmail,
+      );
+      _logger.i('Updated remember me status');
+    }
+  }
+
+  bool _hasCompleteUserData() {
+    return employeeId != null &&
+        firstName != null &&
+        lastName != null &&
+        employeeId!.isNotEmpty &&
+        firstName!.isNotEmpty &&
+        lastName!.isNotEmpty;
+  }
+
+  Future<Map<String, dynamic>> _processClockIn() async {
+    _logger.i('Processing clock in...');
+
+    final recordId = await ClockInOutService.clockIn(
+      accessToken!,
+      instanceUrl!,
+      employeeId!,
+      DateTime.now().toUtc(),
+    );
+
+    if (recordId != null) {
+      _status = ClockStatus.clockedIn;
+      inTime = DateTime.now();
+      outTime = null;
+      _canClockIn = false;
+      _canClockOut = true;
+
+      await _saveRememberMeIfNeeded();
+      _timerLogic.startTimers(inTime!);
+
+      _logger.i('Clock in successful - record ID: $recordId');
+      return {
+        'success': true,
+        'message': 'Successfully clocked in!',
+        'recordId': recordId,
+      };
+    } else {
+      _logger.e('Clock in failed - no record ID returned');
+      return {
+        'success': false,
+        'message': 'Failed to clock in. Please try again.',
+      };
+    }
+  }
+
+  Future<Map<String, dynamic>> _processClockOut() async {
+    _logger.i('Processing clock out...');
+
+    final todayAttendance = await ClockInOutService.getTodayAttendance(
+      accessToken!,
+      instanceUrl!,
+      employeeId!,
+    );
+
+    if (todayAttendance?.containsKey('Id') != true) {
+      _logger.w('No active clock-in record found for today');
+      return {
+        'success': false,
+        'message': 'No active clock-in record found for today.',
+      };
+    }
+
+    final success = await ClockInOutService.clockOut(
+      accessToken!,
+      instanceUrl!,
+      todayAttendance?['Id'],
+      DateTime.now().toUtc(),
+    );
+
+    if (success) {
+      _status = ClockStatus.clockedOut;
+      outTime = DateTime.now();
+      _canClockIn = false;
+      _canClockOut = false;
+
+      await _saveRememberMeIfNeeded();
+      _timerLogic.stopTimers();
+
+      _logger.i('Clock out successful');
+      return {
+        'success': true,
+        'message': 'Successfully clocked out!',
+      };
+    } else {
+      _logger.e('Clock out failed');
+      return {
+        'success': false,
+        'message': 'Failed to clock out. Please try again.',
+      };
+    }
+  }
+
+  // Public methods
+  Future<bool> checkIfAlreadyClockedInToday() async {
+    await _loadCredentials();
+    if (!_hasValidCredentials()) return false;
+
+    try {
+      final todayAttendance = await ClockInOutService.getTodayAttendance(
+        accessToken!,
+        instanceUrl!,
+        employeeId!,
+      );
       return todayAttendance != null && todayAttendance['Out_Time__c'] == null;
     } catch (e, stackTrace) {
       _logger.e('Error checking today\'s attendance: $e', error: e, stackTrace: stackTrace);
@@ -248,10 +334,7 @@ class ClockInOutLogic with ChangeNotifier {
 
   Future<bool> checkIfAlreadyClockedOutToday() async {
     await _loadCredentials();
-
-    if (employeeId == null || accessToken == null || instanceUrl == null) {
-      return false;
-    }
+    if (!_hasValidCredentials()) return false;
 
     try {
       final todayAttendance = await ClockInOutService.getTodayAttendance(
@@ -259,7 +342,6 @@ class ClockInOutLogic with ChangeNotifier {
         instanceUrl!,
         employeeId!,
       );
-
       return todayAttendance != null && todayAttendance['Out_Time__c'] != null;
     } catch (e, stackTrace) {
       _logger.e('Error checking today\'s clock out status: $e', error: e, stackTrace: stackTrace);
@@ -270,7 +352,7 @@ class ClockInOutLogic with ChangeNotifier {
   Future<Map<String, dynamic>> attemptClockInOut({required bool isClockIn}) async {
     _logger.i('Starting clock ${isClockIn ? "in" : "out"} attempt');
 
-    // Check if user can clock out
+    // Validate clock out permission
     if (!isClockIn && !_canClockOut) {
       _logger.w('Clock out attempted but not allowed');
       return {
@@ -279,142 +361,27 @@ class ClockInOutLogic with ChangeNotifier {
       };
     }
 
-    // Load credentials from SharedPrefsUtils
+    // Load and validate credentials
     await _loadCredentials();
 
-    if (accessToken == null) {
-      _logger.e('Access token is null');
+    if (!_hasValidCredentials()) {
+      final missingCredential = accessToken == null
+          ? 'Salesforce access token'
+          : instanceUrl == null
+          ? 'Salesforce instance URL'
+          : 'Employee record';
+
+      _logger.e('Missing credential: $missingCredential');
       return {
         'success': false,
-        'message': 'Salesforce access token not found. Please login again.',
+        'message': '$missingCredential not found. Please ${accessToken == null || instanceUrl == null ? 'login again' : 'contact administrator'}.',
       };
     }
-
-    if (instanceUrl == null) {
-      _logger.e('Instance URL is null');
-      return {
-        'success': false,
-        'message': 'Salesforce instance URL not found. Please login again.',
-      };
-    }
-
-    if (employeeId == null || employeeId!.isEmpty) {
-      _logger.e('Employee ID is null or empty');
-      return {
-        'success': false,
-        'message': 'Employee record not found. Please contact administrator.',
-      };
-    }
-
-    _logger.i('Using employee ID: $employeeId');
 
     try {
-      if (isClockIn) {
-        _logger.i('Attempting clock in...');
-        final recordId = await ClockInOutService.clockIn(
-          accessToken!,
-          instanceUrl!,
-          employeeId!,
-          DateTime.now().toUtc(), // Send UTC time to Salesforce
-        );
-
-        if (recordId != null) {
-          _logger.i('Clock in successful - record ID: $recordId');
-          _status = ClockStatus.clockedIn;
-          inTime = DateTime.now(); // Store local time for UI
-          outTime = null;
-          _canClockIn = false;
-          _canClockOut = true;
-          notifyListeners();
-
-          // Update remember me status after successful clock in
-          if (firstName != null && lastName != null &&
-              firstName!.isNotEmpty && lastName!.isNotEmpty) {
-            await SharedPrefsUtils.saveRememberMeStatus(
-                employeeId!,
-                firstName!,
-                lastName!,
-                email: userEmail
-            );
-            _logger.i('Updated remember me status after clock in');
-          }
-
-          // Start timers after successful clock in
-          _timerLogic.startTimers(inTime!);
-          _logger.i('Started timer logic for clock in');
-
-          return {
-            'success': true,
-            'message': 'Successfully clocked in!',
-            'recordId': recordId,
-          };
-        } else {
-          _logger.e('Clock in failed - no record ID returned');
-          return {
-            'success': false,
-            'message': 'Failed to clock in. Please try again.',
-          };
-        }
-      } else {
-        _logger.i('Attempting clock out - getting today\'s attendance...');
-        final todayAttendance = await ClockInOutService.getTodayAttendance(
-          accessToken!,
-          instanceUrl!,
-          employeeId!,
-        );
-
-        if (todayAttendance != null && todayAttendance['Id'] != null) {
-          _logger.i('Today\'s attendance found - record ID: ${todayAttendance['Id']}');
-          final success = await ClockInOutService.clockOut(
-            accessToken!,
-            instanceUrl!,
-            todayAttendance['Id'],
-            DateTime.now().toUtc(), // Send UTC time to Salesforce
-          );
-
-          if (success) {
-            _logger.i('Clock out successful');
-            _status = ClockStatus.clockedOut;
-            outTime = DateTime.now(); // Store local time for UI
-            _canClockIn = false; // Will be enabled after 18 hours
-            _canClockOut = false;
-            notifyListeners();
-
-            // Update remember me status after successful clock out
-            if (firstName != null && lastName != null &&
-                firstName!.isNotEmpty && lastName!.isNotEmpty) {
-              await SharedPrefsUtils.saveRememberMeStatus(
-                  employeeId!,
-                  firstName!,
-                  lastName!,
-                  email: userEmail
-              );
-              _logger.i('Updated remember me status after clock out');
-            }
-
-            // Stop timers after successful clock out
-            _timerLogic.stopTimers();
-            _logger.i('Stopped timer logic for clock out');
-
-            return {
-              'success': true,
-              'message': 'Successfully clocked out!',
-            };
-          } else {
-            _logger.e('Clock out failed');
-            return {
-              'success': false,
-              'message': 'Failed to clock out. Please try again.',
-            };
-          }
-        } else {
-          _logger.w('No active clock-in record found for today');
-          return {
-            'success': false,
-            'message': 'No active clock-in record found for today.',
-          };
-        }
-      }
+      final result = isClockIn ? await _processClockIn() : await _processClockOut();
+      notifyListeners();
+      return result;
     } catch (e, stackTrace) {
       _logger.e('Error during clock ${isClockIn ? "in" : "out"}: $e', error: e, stackTrace: stackTrace);
       return {
@@ -428,55 +395,16 @@ class ClockInOutLogic with ChangeNotifier {
     _logger.i('Initializing employee data${email != null ? ' for email: $email' : ''}');
 
     try {
-      if (email != null) {
-        userEmail = email;
-      }
-
-      // Load all credentials using SharedPrefsUtils
+      if (email != null) userEmail = email;
       await _loadCredentials();
 
-      // If we still don't have employee ID and we have email and Salesforce credentials,
-      // try to fetch from Salesforce
-      if (employeeId == null && userEmail != null && userEmail!.isNotEmpty &&
-          accessToken != null && instanceUrl != null) {
-        _logger.i('Attempting to fetch employee from Salesforce using email: $userEmail');
-
-        try {
-          final employee = await SalesforceApiService.getEmployeeByEmail(
-            accessToken!,
-            instanceUrl!,
-            userEmail!,
-          );
-
-          if (employee != null && employee['Id'] != null) {
-            final fetchedEmployeeId = employee['Id'].toString();
-            final fetchedFirstName = employee['First_Name__c']?.toString() ?? '';
-            final fetchedLastName = employee['Last_Name__c']?.toString() ?? '';
-
-            _logger.i('Employee fetched from Salesforce: $fetchedEmployeeId, $fetchedFirstName $fetchedLastName');
-
-            // Save employee ID for current session
-            await SharedPrefsUtils.saveCurrentSessionEmployeeId(fetchedEmployeeId);
-            employeeId = fetchedEmployeeId;
-
-            // Save to remember me if first/last names are available
-            if (fetchedFirstName.isNotEmpty && fetchedLastName.isNotEmpty) {
-              await SharedPrefsUtils.saveRememberMeStatus(
-                  fetchedEmployeeId,
-                  fetchedFirstName,
-                  fetchedLastName,
-                  email: userEmail
-              );
-              firstName = fetchedFirstName;
-              lastName = fetchedLastName;
-              _logger.i('Saved employee data to remember me');
-            }
-          } else {
-            _logger.w('No employee found in Salesforce for email: $userEmail');
-          }
-        } catch (e, stackTrace) {
-          _logger.e('Error fetching employee from Salesforce: $e', error: e, stackTrace: stackTrace);
-        }
+      // Fetch employee from Salesforce if needed
+      if (employeeId == null &&
+          userEmail != null &&
+          userEmail!.isNotEmpty &&
+          accessToken != null &&
+          instanceUrl != null) {
+        await _fetchEmployeeFromSalesforce();
       }
 
       _logger.i('Employee data initialization complete${employeeId != null ? ' with ID: $employeeId' : ' - no employee ID found'}');
@@ -485,7 +413,56 @@ class ClockInOutLogic with ChangeNotifier {
     }
   }
 
-  // Method to update clock in/out status from external sources (like timer logic)
+  Future<void> _fetchEmployeeFromSalesforce() async {
+    _logger.i('Fetching employee from Salesforce using email: $userEmail');
+
+    try {
+      final employee = await SalesforceApiService.getEmployeeByEmail(
+        accessToken!,
+        instanceUrl!,
+        userEmail!,
+      );
+
+      if (employee?.containsKey('Id') == true) {
+        employeeId = employee?['Id'].toString();
+        firstName = employee?['First_Name__c']?.toString() ?? '';
+        lastName = employee?['Last_Name__c']?.toString() ?? '';
+
+        _logger.i('Employee fetched: $employeeId, $firstName $lastName');
+
+        // Save employee data
+        await SharedPrefsUtils.saveEmployeeData(
+          employeeId!,
+          firstName!,
+          lastName!,
+          email: userEmail,
+        );
+
+        // Set remember me if we have complete user data
+        if (firstName!.isNotEmpty && lastName!.isNotEmpty) {
+          await SharedPrefsUtils.saveRememberMeStatus(
+            employeeId!,
+            firstName!,
+            lastName!,
+            email: userEmail,
+          );
+          _logger.i('Saved employee data to remember me');
+        }
+      } else {
+        _logger.w('No employee found in Salesforce for email: $userEmail');
+      }
+    } catch (e, stackTrace) {
+      _logger.e('Error fetching employee from Salesforce: $e', error: e, stackTrace: stackTrace);
+    }
+  }
+
+  // Timer-related methods
+  Duration? getRemainingAutoClockOutTime() => _timerLogic.getRemainingAutoClockOutTime();
+  Duration? getRemainingNotificationTime() => _timerLogic.getRemainingNotificationTime();
+  Duration? getRemaining18HourTime() => _timerLogic.getRemaining18HourTime();
+  Future<void> sendTestNotification() => _timerLogic.sendTestNotification();
+
+  // Status update methods
   void updateClockStatus({
     required ClockStatus status,
     DateTime? clockInTime,
@@ -493,7 +470,7 @@ class ClockInOutLogic with ChangeNotifier {
     bool? canClockIn,
     bool? canClockOut,
   }) {
-    _logger.i('Updating clock status from external source - status: $status, canClockIn: $canClockIn, canClockOut: $canClockOut');
+    _logger.i('Updating clock status from external source - status: $status');
 
     _status = status;
     if (clockInTime != null) inTime = clockInTime;
@@ -503,35 +480,19 @@ class ClockInOutLogic with ChangeNotifier {
     notifyListeners();
   }
 
-  // Method to enable clock in (typically called by timer logic after 18 hours)
   void enableClockIn() {
     _logger.i('Enabling clock in from external trigger');
     _canClockIn = true;
     notifyListeners();
   }
 
-  // Method to disable clock out (typically called by timer logic during auto clock out)
   void disableClockOut() {
     _logger.i('Disabling clock out from external trigger');
     _canClockOut = false;
     notifyListeners();
   }
 
-  // Helper methods to access timer information
-  bool get hasActiveTimers => _timerLogic.hasActiveTimers;
-  bool get isTimerClockIn => _timerLogic.isClockIn;
-  DateTime? get timerClockInTime => _timerLogic.clockInTime;
-  int get notificationCount => _timerLogic.notificationCount;
-
-  // Methods to get remaining times for various timers
-  Duration? getRemainingAutoClockOutTime() => _timerLogic.getRemainingAutoClockOutTime();
-  Duration? getRemainingNotificationTime() => _timerLogic.getRemainingNotificationTime();
-  Duration? getRemaining18HourTime() => _timerLogic.getRemaining18HourTime();
-
-  // Method for testing notifications
-  Future<void> sendTestNotification() => _timerLogic.sendTestNotification();
-
-  // Method to clear remember me data (useful for logout)
+  // Utility methods
   Future<void> clearRememberMe() async {
     _logger.i('Clearing remember me data');
     await SharedPrefsUtils.clearRememberMeData();
@@ -539,53 +500,23 @@ class ClockInOutLogic with ChangeNotifier {
     lastName = null;
   }
 
-  // Method to manually save remember me data
   Future<void> saveRememberMe() async {
-    if (employeeId != null && firstName != null && lastName != null &&
-        employeeId!.isNotEmpty && firstName!.isNotEmpty && lastName!.isNotEmpty) {
+    if (_hasCompleteUserData()) {
       _logger.i('Manually saving remember me data');
       await SharedPrefsUtils.saveRememberMeStatus(
-          employeeId!,
-          firstName!,
-          lastName!,
-          email: userEmail
+        employeeId!,
+        firstName!,
+        lastName!,
+        email: userEmail,
       );
     } else {
       _logger.w('Cannot save remember me data - missing required information');
     }
   }
 
-  // Method to refresh credentials if needed
   Future<void> refreshCredentials() async {
     _logger.i('Refreshing credentials');
     await _loadCredentials();
     notifyListeners();
   }
-  //
-  // // Method to clear all data (useful for logout)
-  // Future<void> clearAllData() async {
-  //   _logger.i('Clearing all clock in/out data');
-  //
-  //   // Stop timers
-  //   _timerLogic.stopTimers();
-  //
-  //   // Clear SharedPreferences data
-  //   await SharedPrefsUtils.clearAllData();
-  //
-  //   // Reset local variables
-  //   _status = ClockStatus.unmarked;
-  //   inTime = null;
-  //   outTime = null;
-  //   _canClockIn = true;
-  //   _canClockOut = false;
-  //   accessToken = null;
-  //   instanceUrl = null;
-  //   employeeId = null;
-  //   userEmail = null;
-  //   firstName = null;
-  //   lastName = null;
-  //
-  //   notifyListeners();
-  //   _logger.i('All clock in/out data cleared');
-  // }
 }

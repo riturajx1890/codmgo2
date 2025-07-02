@@ -125,6 +125,15 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     // You can add your theme provider logic here
   }
 
+  // Handle back button press
+  Future<bool> _onWillPop() async {
+    if (_isDrawerOpen) {
+      _closeDrawer();
+      return false; // Don't exit the app, just close the drawer
+    }
+    return true; // Allow exit without confirmation
+  }
+
   Future<void> _onClockInTap() async {
     HapticFeedback.mediumImpact();
 
@@ -314,7 +323,6 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
   }
 
   @override
-  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDarkMode = theme.brightness == Brightness.dark;
@@ -329,71 +337,74 @@ class _DashboardPageState extends State<DashboardPage> with TickerProviderStateM
     final formattedDate = dateFormat.format(now);
     final formattedTime = timeFormat.format(now);
 
-    return Stack(
-      children: [
-        Scaffold(
-          key: _scaffoldKey,
-          backgroundColor: backgroundColor,
-          appBar: _buildAppBar(cardColor, subtitleColor, textColor, isDarkMode),
-          body: Stack(
-            children: [
-              // Main content with gesture detector to close drawer
-              GestureDetector(
-                onTap: _isDrawerOpen ? _closeDrawer : null,
-                child: AbsorbPointer(
-                  absorbing: _isDrawerOpen,
-                  child: RefreshIndicator(
-                    onRefresh: _onRefresh,
-                    child: ScrollConfiguration(
-                      behavior: const ScrollBehavior().copyWith(scrollbars: false),
-                      child: SingleChildScrollView(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildTodaysAttendanceCard(formattedTime, formattedDate, isDarkMode),
-                            const SizedBox(height: 20),
-                            _buildUpcomingLeaveSection(textColor, cardColor, isDarkMode, subtitleColor),
-                            const SizedBox(height: 20),
-                            _buildQuickActionsSection(textColor, isDarkMode),
-                            const SizedBox(height: 20),
-                            _buildRecentActivitySection(textColor, cardColor, isDarkMode),
-                            const SizedBox(height: 80),
-                          ],
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Stack(
+        children: [
+          Scaffold(
+            key: _scaffoldKey,
+            backgroundColor: backgroundColor,
+            appBar: _buildAppBar(cardColor, subtitleColor, textColor, isDarkMode),
+            body: Stack(
+              children: [
+                // Main content with gesture detector to close drawer
+                GestureDetector(
+                  onTap: _isDrawerOpen ? _closeDrawer : null,
+                  child: AbsorbPointer(
+                    absorbing: _isDrawerOpen,
+                    child: RefreshIndicator(
+                      onRefresh: _onRefresh,
+                      child: ScrollConfiguration(
+                        behavior: const ScrollBehavior().copyWith(scrollbars: false),
+                        child: SingleChildScrollView(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildTodaysAttendanceCard(formattedTime, formattedDate, isDarkMode),
+                              const SizedBox(height: 20),
+                              _buildUpcomingLeaveSection(textColor, cardColor, isDarkMode, subtitleColor),
+                              const SizedBox(height: 20),
+                              _buildQuickActionsSection(textColor, isDarkMode),
+                              const SizedBox(height: 20),
+                              _buildRecentActivitySection(textColor, cardColor, isDarkMode),
+                              const SizedBox(height: 80),
+                            ],
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
 
-              // Overlay when drawer is open
-              if (_isDrawerOpen)
-                GestureDetector(
-                  onTap: _closeDrawer,
-                  child: Container(
-                    color: Colors.black.withOpacity(0.5),
-                    width: double.infinity,
-                    height: double.infinity,
+                // Overlay when drawer is open
+                if (_isDrawerOpen)
+                  GestureDetector(
+                    onTap: _closeDrawer,
+                    child: Container(
+                      color: Colors.black.withOpacity(0.5),
+                      width: double.infinity,
+                      height: double.infinity,
+                    ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
-        ),
 
-        // Slide-out drawer - moved outside Scaffold to appear above app bar
-        SlideTransition(
-          position: _drawerSlideAnimation,
-          child: SlideBar(
-            firstName: widget.firstName,
-            lastName: widget.lastName,
-            phoneNumber: '+91 1234567890',
-            isDarkMode: isDarkMode,
-            onThemeToggle: _toggleTheme,
+          // Slide-out drawer - moved outside Scaffold to appear above app bar
+          SlideTransition(
+            position: _drawerSlideAnimation,
+            child: SlideBar(
+              firstName: widget.firstName,
+              lastName: widget.lastName,
+              phoneNumber: '+91 1234567890',
+              isDarkMode: isDarkMode,
+              onThemeToggle: _toggleTheme,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 

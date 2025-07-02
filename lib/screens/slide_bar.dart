@@ -128,17 +128,11 @@ class SlideBar extends StatelessWidget {
       shrinkWrap: true,
       children: [
         const Divider(height: 16),
-        _buildNavigationItem(context, icon: Icons.person_outline, title: 'My Profile', onTap: () => _handleNavigation(context, 'profile')),
-        _buildNavigationItem(context, icon: Icons.group_add_outlined, title: 'New Group', onTap: () => _handleNavigation(context, 'new_group')),
-        _buildNavigationItem(context, icon: Icons.contacts_outlined, title: 'Contacts', onTap: () => _handleNavigation(context, 'contacts')),
-        _buildNavigationItem(context, icon: Icons.call_outlined, title: 'Calls', onTap: () => _handleNavigation(context, 'calls')),
-        _buildNavigationItem(context, icon: Icons.bookmark_outline, title: 'Saved Messages', onTap: () => _handleNavigation(context, 'saved_messages')),
-        _buildNavigationItem(context, icon: Icons.settings_outlined, title: 'Settings', onTap: () => _handleNavigation(context, 'settings'), hasIndicator: true),
-
-        //   const Divider(height: 16),
-        //
-        //   _buildNavigationItem(context, icon: Icons.group_outlined, title: 'Invite Friends', onTap: () => _handleNavigation(context, 'invite_friends')),
-        //   _buildNavigationItem(context, icon: Icons.help_outline, title: 'Telegram Features', onTap: () => _handleNavigation(context, 'telegram_features')),
+        _buildNavigationItem(context, icon: Icons.person_outline, title: 'My Profile', onTap: () => _showComingSoonSnackbar(context, 'My Profile')),
+        _buildNavigationItem(context, icon: Icons.phone, title: 'Important Contacts', onTap: () => _showComingSoonSnackbar(context, 'Important Contacts')),
+        _buildNavigationItem(context, icon: Icons.photo_library_outlined, title: 'Gallery', onTap: () => _showComingSoonSnackbar(context, 'Gallery')),
+        _buildNavigationItem(context, icon: Icons.bookmark_outline, title: 'HR Policies', onTap: () => _showComingSoonSnackbar(context, 'HR Policies')),
+        _buildNavigationItem(context, icon: Icons.help_outline, title: 'Help', onTap: () => _showComingSoonSnackbar(context, 'Help'), hasIndicator: false),
       ],
     );
   }
@@ -193,9 +187,12 @@ class SlideBar extends StatelessWidget {
     );
   }
 
-  void _handleNavigation(BuildContext context, String route) {
-    Navigator.of(context).pop(); // Close drawer
-    debugPrint('Navigate to $route');
-    // Actual navigation logic goes here
+  void _showComingSoonSnackbar(BuildContext context, String featureName) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$featureName - Coming Soon!'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 }

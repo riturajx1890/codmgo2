@@ -63,10 +63,10 @@ class _CustomBottomNavBarState extends State<CustomBottomNavBar> {
         );
       case 1:
         return LeaveDashboardPage(employeeId: widget.employeeId);
-      case 2:
-        return _buildSearchPlaceholder();
+      // case 2:
+      //   return _buildSearchPlaceholder();
       case 3:
-        return LeaveHistoryPage(employeeId: widget.employeeId);
+        return AttendanceHistoryPage(employeeId: widget.employeeId);
       case 4:
         return const ProfilePage();
       default:
@@ -243,15 +243,15 @@ class _CustomBottomNavBarState extends State<CustomBottomNavBar> {
                 activeColor: activeColor,
                 inactiveColor: inactiveColor,
               ),
-              _buildNavItem(
-                icon: Icons.search_outlined,
-                activeIcon: Icons.search,
-                label: 'Search',
-                index: 2,
-                isSelected: _currentIndex == 2,
-                activeColor: activeColor,
-                inactiveColor: inactiveColor,
-              ),
+              // _buildNavItem(
+              //   icon: Icons.search_outlined,
+              //   activeIcon: Icons.search,
+              //   label: 'Search',
+              //   index: 2,
+              //   isSelected: _currentIndex == 2,
+              //   activeColor: activeColor,
+              //   inactiveColor: inactiveColor,
+              // ),
               _buildNavItem(
                 icon: Icons.calendar_month_outlined,
                 activeIcon: Icons.calendar_month,

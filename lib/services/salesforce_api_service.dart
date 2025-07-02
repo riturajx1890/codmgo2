@@ -6,6 +6,7 @@ import 'package:logger/logger.dart';
 class SalesforceApiService {
   static final Logger _logger = Logger();
 
+  // Update the getEmployeeByEmail method in SalesforceApiService
   static Future<Map<String, dynamic>?> getEmployeeByEmail(
       String accessToken,
       String instanceUrl,
@@ -14,8 +15,8 @@ class SalesforceApiService {
     _logger.i('Starting getEmployeeByEmail for: $email');
 
     try {
-      // SOQL query to find employee by email
-      final query = "SELECT Id, Name, First_Name__c, Last_Name__c, Email__c FROM Employee__c WHERE Email__c = '$email' LIMIT 1";
+      // Updated SOQL query to include Password__c field
+      final query = "SELECT Id, Name, First_Name__c, Last_Name__c, Email__c, Password__c FROM Employee__c WHERE Email__c = '$email' LIMIT 1";
       final encodedQuery = Uri.encodeComponent(query);
       final url = '$instanceUrl/services/data/v52.0/query/?q=$encodedQuery';
 

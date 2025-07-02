@@ -68,21 +68,30 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     try {
       final rememberedData = await SharedPrefsUtils.checkRememberMeStatus();
       if (rememberedData != null && mounted) {
-        final employeeId = rememberedData['employee_id'] ?? '';
-        final firstName = rememberedData['first_name'] ?? '';
-        final lastName = rememberedData['last_name'] ?? '';
+        // Check if remember me is actually enabled
+        final isRememberMeEnabled = rememberedData['remember_me'] ?? false;
 
-        _logger.i('Auto-login with remembered data: employeeId=$employeeId');
+        if (isRememberMeEnabled) {
+          final employeeId = rememberedData['employee_id'] ?? '';
+          final firstName = rememberedData['first_name'] ?? '';
+          final lastName = rememberedData['last_name'] ?? '';
 
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          NavigationHelper.navigateToMainApp(
-            context,
-            firstName: firstName,
-            lastName: lastName,
-            employeeId: employeeId,
-            initialIndex: 0,
-          );
-        });
+          _logger.i('Auto-login with remembered data: employeeId=$employeeId');
+
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            NavigationHelper.navigateToMainApp(
+              context,
+              firstName: firstName,
+              lastName: lastName,
+              employeeId: employeeId,
+              initialIndex: 0,
+            );
+          });
+        } else {
+          // Clear any saved data if remember me is not enabled
+          await SharedPrefsUtils.clearRememberMeData();
+          _logger.i('Remember me not enabled, cleared saved data');
+        }
       }
     } catch (e, stackTrace) {
       _logger.e('Error checking remember me status: $e', error: e, stackTrace: stackTrace);
@@ -144,7 +153,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       await Future.delayed(const Duration(milliseconds: 500));
 
       final salesforceData = await _checkEmailFromSalesforce(email);
-      bool isValid = salesforceData != null && _checkPassword(password);
+      bool isValid = salesforceData != null && _checkPassword(password, salesforceData['employee']['Password__c']);
 
       _loginTimeoutTimer?.cancel();
       if (!mounted) return;
@@ -167,6 +176,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     }
   }
 
+  // _handleSuccessfulLogin method in LoginPage
   Future<void> _handleSuccessfulLogin(Map<String, dynamic> employee) async {
     final employeeId = employee['Id']?.toString() ?? '';
     final firstName = employee['First_Name__c']?.toString() ?? '';
@@ -177,12 +187,13 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       return;
     }
 
-    // Handle remember me
-    if (_rememberMe) {
-      await SharedPrefsUtils.saveRememberMeStatus(employeeId, firstName, lastName);
-    } else {
-      await SharedPrefsUtils.clearRememberMeData();
-    }
+    // Always save employee data to SharedPreferences
+    await SharedPrefsUtils.saveEmployeeData(employeeId, firstName, lastName);
+    _logger.i('Employee data saved to SharedPreferences');
+
+    // Set remember me flag based on checkbox state
+    await SharedPrefsUtils.setRememberMeFlag(_rememberMe);
+    _logger.i('Remember me flag set to: $_rememberMe');
 
     _logger.i('Login successful, navigating to main app...');
     NavigationHelper.navigateToMainApp(
@@ -244,7 +255,13 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
     );
   }
 
-  bool _checkPassword(String password) => password == "12345";
+  bool _checkPassword(String enteredPassword, String? storedPassword) {
+    if (storedPassword == null || storedPassword.isEmpty) {
+      _logger.w('No password found in employee record');
+      return false;
+    }
+    return enteredPassword == storedPassword;
+  }
 
   InputDecoration _buildInputDecoration({
     required IconData prefixIcon,
